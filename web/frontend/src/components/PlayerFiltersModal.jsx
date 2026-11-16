@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { LEAGUE_CATEGORIES as CATEGORIES } from '../utils/categories';
+const EMPTY_AVAILABILITY_FILTERS = Object.freeze({});
 
-const PlayerFiltersModal = ({ isOpen, onClose, onApply, initialFilters = {} }) => {
+const PlayerFiltersModal = ({ isOpen, onClose, onApply, initialFilters = {}, showAvailabilityFilters = false, initialAvailabilityFilters = EMPTY_AVAILABILITY_FILTERS }) => {
     const [filters, setFilters] = useState({});
+    const [availabilityFilters, setAvailabilityFilters] = useState({});
 
     // Инициализация фильтров при открытии модального окна
     useEffect(() => {
         if (isOpen) {
             setFilters(initialFilters || {});
+            setAvailabilityFilters(initialAvailabilityFilters);
         }
-    }, [isOpen, initialFilters]);
+    }, [isOpen, initialFilters, initialAvailabilityFilters]);
 
     const handleFilterChange = (category, value) => {
         const numValue = value === '' ? null : parseFloat(value);
@@ -26,10 +29,11 @@ const PlayerFiltersModal = ({ isOpen, onClose, onApply, initialFilters = {} }) =
 
     const handleReset = () => {
         setFilters({});
+        setAvailabilityFilters({ hideNoTeam: false, hideLongTermInjuries: false });
     };
 
     const handleApply = () => {
-        onApply(filters);
+        onApply(filters, availabilityFilters);
         onClose();
     };
 
@@ -57,6 +61,24 @@ const PlayerFiltersModal = ({ isOpen, onClose, onApply, initialFilters = {} }) =
                             ×
                         </button>
                     </div>
+
+                    {showAvailabilityFilters && (
+                        <div className="mb-6 space-y-3 rounded border bg-gray-50 p-4">
+                            <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={Boolean(availabilityFilters.hideNoTeam)}
+                                    onChange={event => setAvailabilityFilters(current => ({ ...current, hideNoTeam: event.target.checked }))} />
+                                Скрывать игроков без NBA-команды (FA)
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={Boolean(availabilityFilters.hideLongTermInjuries)}
+                                    onChange={event => setAvailabilityFilters(current => ({ ...current, hideLongTermInjuries: event.target.checked }))} />
+                                Скрывать игроков с длительной травмой
+                            </label>
+                            <p className="text-xs text-gray-500">
+                                Длительная травма: возвращение через 30 дней и позже или явный статус «до конца сезона» по данным ESPN. OUT без даты возвращения сам по себе не скрывается.
+                            </p>
+                        </div>
+                    )}
 
                     <div className="mb-4 text-sm text-gray-600">
                         Укажите минимальные значения для фильтрации игроков. Оставьте поле пустым, чтобы не применять фильтр по этой категории.

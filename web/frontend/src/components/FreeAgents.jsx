@@ -6,6 +6,7 @@ import PlayerFiltersModal from './PlayerFiltersModal';
 import { getTrendColor } from '../utils/trendColors';
 import { LEAGUE_CATEGORIES as CATEGORIES } from '../utils/categories';
 import { mergeFreeAgentPlayers } from '../utils/freeAgentMarket';
+import { matchesFreeAgentAvailability } from '../utils/freeAgentAvailability';
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 const ENABLE_REPLACEMENT_RECOMMENDATIONS = false;
 
@@ -34,6 +35,9 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
     const [sortDir, setSortDir] = useState('desc');
     const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
     const [filters, setFilters] = useState(savedState.filters || {});
+    const [availabilityFilters, setAvailabilityFilters] = useState(savedState.availabilityFilters || {
+        hideNoTeam: true, hideLongTermInjuries: true,
+    });
     const [playerTrends, setPlayerTrends] = useState({});
 
     useEffect(() => {
@@ -123,8 +127,9 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
         saveState(StorageKeys.FREE_AGENTS, {
             position,
             filters,
+            availabilityFilters,
         });
-    }, [position, filters]);
+    }, [position, filters, availabilityFilters]);
 
 
     const calculateTotalZ = (player) => {
@@ -151,7 +156,7 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
         }
     };
 
-    let sortedPlayers = data ? [...data.players].sort((a, b) => {
+    let sortedPlayers = data ? data.players.filter(player => matchesFreeAgentAvailability(player, availabilityFilters)).sort((a, b) => {
         let valA, valB;
 
         if (sortBy === 'total_z') {
@@ -208,11 +213,13 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
         return sortDir === 'asc' ? <span className="ml-1">↑</span> : <span className="ml-1">↓</span>;
     };
 
-    const handleApplyFilters = (newFilters) => {
+    const handleApplyFilters = (newFilters, newAvailabilityFilters) => {
         setFilters(newFilters);
+        setAvailabilityFilters(newAvailabilityFilters);
     };
 
-    const hasActiveFilters = Object.keys(filters).length > 0;
+    const filterCount = Object.keys(filters).length + Number(Boolean(availabilityFilters.hideNoTeam)) + Number(Boolean(availabilityFilters.hideLongTermInjuries));
+    const hasActiveFilters = filterCount > 0;
 
     return (
         <div className="p-4">
@@ -236,7 +243,7 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
                             : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
                     }`}
                 >
-                    Фильтры {hasActiveFilters && `(${Object.keys(filters).length})`}
+                    Фильтры {hasActiveFilters && `(${filterCount})`}
                 </button>
             </div>
 
@@ -348,6 +355,8 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
                 onClose={() => setIsFiltersModalOpen(false)}
                 onApply={handleApplyFilters}
                 initialFilters={filters}
+                showAvailabilityFilters
+                initialAvailabilityFilters={availabilityFilters}
             />
         </div>
     );

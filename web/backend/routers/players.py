@@ -153,6 +153,10 @@ def get_free_agents(
             'name': fa.name,
             'position': getattr(fa, 'position', 'N/A'),
             'nba_team': getattr(fa, 'proTeam', 'N/A'),
+            'injured': bool(getattr(fa, 'injured', False)),
+            'injury_status': getattr(fa, 'injuryStatus', 'ACTIVE'),
+            'expected_return_date': getattr(fa, 'expected_return_date', None),
+            'out_for_season': bool(getattr(fa, 'out_for_season', False)),
             'z_scores': z_scores,
             'stats': clean_stats
         }
