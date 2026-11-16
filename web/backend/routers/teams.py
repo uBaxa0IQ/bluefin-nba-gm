@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from dependencies import get_league_meta, refresh_cached_league
 from core.z_score import calculate_z_scores
 from core.config import DEFAULT_PERIOD
+from core.matchup_availability import latest_stats_week
 import math
 
 router = APIRouter(prefix="/api", tags=["teams"])
@@ -57,8 +58,11 @@ def get_weeks(league_meta=Depends(get_league_meta)):
     weeks = list(range(1, current_week + 1))
     scheduled = getattr(league.settings, "matchup_periods", {}) or {}
     last_week = max((int(week) for week in scheduled), default=current_week)
+    stats_week = latest_stats_week(league_meta, current_week)
     return {
         "weeks": weeks,
+        "latest_stats_week": stats_week,
+        "simulation_weeks": list(range(1, (stats_week or 0) + 1)),
         "forecast_weeks": list(range(current_week, max(current_week, last_week) + 1)),
         "current_week": current_week,
     }

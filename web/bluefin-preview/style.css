@@ -141,6 +141,16 @@ body.bf-modal-open{overflow:hidden}
 #paper-exploration .bf-roster-toggle{margin-top:16px}
 #paper-exploration .bf-inline-roster{margin-top:20px}
 #paper-exploration .bf-inline-roster>.pe-search{width:100%;margin-bottom:10px}
+#paper-exploration .bf-roster-list{max-height:480px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--pe-line) transparent;padding-right:8px}
+#paper-exploration .bf-trade-result-controls{justify-content:space-between;margin-bottom:24px}
+#paper-exploration .bf-trade-value{display:block;white-space:nowrap}
+#paper-exploration .bf-trade-before .bf-trade-value{color:inherit}
+#paper-exploration .bf-trade-after .bf-trade-value{font-weight:500}
+#paper-exploration .bf-trade-rank{display:block;margin-top:7px;font-size:11px;color:var(--pe-muted);font-variant-numeric:tabular-nums}
+#paper-exploration .bf-trade-rank-change{display:block;margin-top:7px;font-size:11px;font-variant-numeric:tabular-nums}
+#paper-exploration .bf-trade-table td{vertical-align:top;padding-top:15px;padding-bottom:15px}
+#paper-exploration .bf-trade-table .bf-trade-delta{font-size:11px}
+#paper-exploration .bf-trade-summary .bf-trade-outcomes{margin-top:20px}
 #paper-exploration .bf-trade-builder .pe-select{max-width:80%;font-size:12px}
 #paper-exploration .bf-trade-run{display:flex;justify-content:center;align-items:center;margin:24px 0 36px;min-height:44px}
 #paper-exploration .bf-trade-run>.pe-button{width:min(340px,100%);min-height:44px;font-size:13px}
@@ -186,3 +196,5 @@ body.bf-modal-open{overflow:hidden}
 @media(max-width:700px){#paper-exploration .pe-header{display:grid;grid-template-columns:1fr auto;gap:15px;padding:20px 18px}#paper-exploration .pe-brand{grid-column:1;grid-row:1}#paper-exploration .pe-header-end{grid-column:2;grid-row:1;gap:9px;white-space:nowrap;font-size:10px}#paper-exploration .pe-nav{grid-column:1/-1;grid-row:2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px 15px}#paper-exploration .pe-nav a{padding:9px 0;width:max-content;font-size:12px}}
 
 #paper-exploration .pe-main .bf-trade-run{display:flex;justify-content:center;width:100%;margin:24px 0 36px}#paper-exploration .pe-main .bf-trade-run>.pe-button{display:block;margin:0 auto;width:min(425px,100%);min-height:44px}.bf-periods-panel{border-top:1px solid var(--pe-line);padding-top:24px;margin-top:28px}.bf-periods-panel h2{margin-bottom:14px!important}
+
+#paper-exploration .bf-trade-roster-control{display:flex;justify-content:center;margin:8px 0 20px}

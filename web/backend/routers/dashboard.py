@@ -331,8 +331,11 @@ def get_matchup_details(
     
     # Получаем текущий матчап
     matchup_box = league_meta.get_matchup_box_score(current_week, team_id)
-    if not matchup_box:
-        return {"error": "No current matchup found"}
+    if not matchup_box or not any(
+        value for value in matchup_box.get('totals', {}).values()
+        if isinstance(value, (int, float))
+    ):
+        return {"status": "not_started", "week": current_week}
     
     opponent_id = matchup_box['opponent_id']
     

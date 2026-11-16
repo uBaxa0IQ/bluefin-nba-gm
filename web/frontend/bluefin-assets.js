@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
 const directory = fileURLToPath(new URL('../bluefin-preview/', import.meta.url))
-const files = ['base.css', 'style.css', 'app.js', 'app-shell.js', 'i18n.js', 'analytics.js', 'views-update.js', 'bootstrap.js']
+const files = ['theme.js', 'base.css', 'style.css', 'app.js', 'app-shell.js', 'i18n.js', 'analytics.js', 'views-update.js', 'bootstrap.js']
 
 export function bluefinAssets() {
   return {
@@ -27,7 +27,7 @@ export function bluefinAssets() {
         const version = createHash('sha256').update(files.map(name => readFileSync(directory + name)).join('')).digest('hex').slice(0, 10)
         return files.map(name => name.endsWith('.css')
           ? { tag: 'link', attrs: { rel: 'stylesheet', href: `/bluefin/${name}?v=${version}` }, injectTo: 'head' }
-          : { tag: 'script', attrs: { src: `/bluefin/${name}?v=${version}` }, injectTo: 'body' })
+          : { tag: 'script', attrs: { src: `/bluefin/${name}?v=${version}` }, injectTo: name === 'theme.js' ? 'head-prepend' : 'body' })
       },
     },
     generateBundle() {
