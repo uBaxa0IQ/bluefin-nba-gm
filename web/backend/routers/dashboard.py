@@ -309,6 +309,10 @@ def get_dashboard(
 def get_matchup_details(
     team_id: int,
     week: int = None,
+    period: str = DEFAULT_PERIOD,
+    simulation_mode: str = "all",
+    top_n_players: int = 13,
+    custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta)
 ):
     """
@@ -394,7 +398,12 @@ def get_matchup_details(
         },
         'score': f"{my_wins}-{opponent_wins}-{ties}",
         'categories': categories_data,
-        'game_usage': get_week_game_usage(league_meta, (team_id, opponent_id)),
+        'game_usage': get_week_game_usage(
+            league_meta, (team_id, opponent_id), period=period,
+            simulation_mode=simulation_mode, top_n_players=top_n_players,
+            custom_team_id=team_id,
+            custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
+        ),
     }
 
 
@@ -804,17 +813,10 @@ def get_season_projection(
                 "losses": standing["losses"],
                 "ties": standing["ties"],
                 "win_rate": standing["win_rate"],
-                "p_playoff": standing.get("p_playoff"),
-                "p_seed": standing.get("p_seed"),
-                "expected_seed": standing.get("expected_seed"),
             }
             for standing in projection["standings"]
         ],
         "method": projection["method"],
         "tie_break_note": projection["tie_break_note"],
         "assumptions": projection["assumptions"],
-        "p_playoff": target.get("p_playoff"),
-        "p_seed": target.get("p_seed"),
-        "expected_seed": target.get("expected_seed"),
-        "trials": projection.get("trials"),
     }

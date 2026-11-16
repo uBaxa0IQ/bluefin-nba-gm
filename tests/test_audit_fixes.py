@@ -66,9 +66,9 @@ def test_accrued_ratios_are_recomputed_from_volume():
     assert result['A/TO'] == 2
 
 
-def test_started_games_not_forecast_twice_and_return_date_is_used():
+def test_started_games_not_forecast_twice_and_return_date_does_not_limit_roster():
     now = datetime.now()
-    player = {'name': 'A', 'position': 'PG', 'available': False, 'expected_return_date': now.date() + timedelta(days=1), 'future_only': True,
+    player = {'name': 'A', 'position': 'PG', 'available': True, 'injured': True, 'injury_status': 'OUT', 'expected_return_date': now.date() + timedelta(days=30), 'future_only': True,
               'schedule': {'1': {'date': now - timedelta(hours=1)}, '2': {'date': now + timedelta(days=2)}}, 'z_scores': {'PTS': 1}}
     result = build_matchup_lineups([player], [1, 2], ('PG',))
     assert result['selected_games'] == {'A': 1}

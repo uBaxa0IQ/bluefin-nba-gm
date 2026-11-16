@@ -1,7 +1,7 @@
 """Проекция фэнтези-состава по NBA-календарю и доступным lineup slots."""
 
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 
 DEFAULT_LINEUP_SLOTS: Tuple[str, ...] = (
@@ -141,17 +141,6 @@ def build_matchup_lineups(
         for player in players:
             if not has_game(player, scoring_period):
                 continue
-            return_date = player.get('expected_return_date')
-            game_date = (player.get('schedule', {}).get(str(scoring_period), player.get('schedule', {}).get(scoring_period)) or {}).get('date')
-            if isinstance(return_date, str):
-                try:
-                    return_date = date.fromisoformat(return_date[:10])
-                except ValueError:
-                    return_date = None
-            if isinstance(return_date, datetime):
-                return_date = return_date.date()
-            if isinstance(return_date, date) and isinstance(game_date, datetime) and game_date.date() >= return_date and player.get('lineup_slot') != 'IR':
-                player = {**player, 'available': True}
             playing.append(player)
         key = tuple(id(player) for player in playing)
         if key not in day_cache:

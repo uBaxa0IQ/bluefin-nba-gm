@@ -16,7 +16,6 @@ const Dashboard = ({ period, mainTeam, simulationMode, isPlayoff, calculationEng
     const [loading, setLoading] = useState(true);
     const [seasonProjection, setSeasonProjection] = useState(null);
     const [projectionLoading, setProjectionLoading] = useState(false);
-    const [engineValidation, setEngineValidation] = useState(null);
     const [showProjectionModal, setShowProjectionModal] = useState(false);
     const [compareTeamId, setCompareTeamId] = useState(() => {
         const saved = loadState(StorageKeys.DASHBOARD, {});
@@ -154,15 +153,6 @@ const Dashboard = ({ period, mainTeam, simulationMode, isPlayoff, calculationEng
             });
     }, [mainTeam, period, simulationMode, isPlayoff, calculationEngine, customPlayersKey]);
 
-    useEffect(() => {
-        if (calculationEngine !== 'probabilistic') {
-            setEngineValidation(null);
-            return;
-        }
-        api.get('/projections/validation')
-            .then(response => setEngineValidation(response.data))
-            .catch(() => setEngineValidation(null));
-    }, [calculationEngine]);
 
     if (!mainTeam) {
         return (
@@ -232,12 +222,6 @@ const Dashboard = ({ period, mainTeam, simulationMode, isPlayoff, calculationEng
                                         </span>
                                     </div>
                                 ) : null}
-                                {seasonProjection?.p_playoff != null && !isPlayoff && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-gray-600">Шанс плей-офф:</span>
-                                        <span className="font-semibold text-blue-600">{(seasonProjection.p_playoff * 100).toFixed(1)}%</span>
-                                    </div>
-                                )}
                             </div>
                         </div>
 
@@ -271,17 +255,6 @@ const Dashboard = ({ period, mainTeam, simulationMode, isPlayoff, calculationEng
                         onApply={onApplyPuntStrategy}
                     />
 
-                    {engineValidation && (
-                        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-                            <div className="font-semibold text-gray-700">Точность вероятностного движка</div>
-                            <div className="mt-1 text-gray-600">
-                                Проверено матчапов: {engineValidation.resolved}
-                                {engineValidation.brier_score != null && ` · Brier ${engineValidation.brier_score.toFixed(3)}`}
-                                {engineValidation.matchup_accuracy != null && ` · точность исхода ${(engineValidation.matchup_accuracy * 100).toFixed(1)}%`}
-                            </div>
-                            {!engineValidation.resolved && <div className="mt-1 text-xs text-gray-500">Метрики появятся после завершения записанных прогнозов.</div>}
-                        </div>
-                    )}
 
                     {/* Matchup Details */}
                     {dashboardData.current_matchup ? (

@@ -16,7 +16,7 @@ from utils.calculations import (
     select_top_n_players
 )
 from trade_log_db import log_trade
-from services.trades import analyze_calendar_trade, analyze_probabilistic_trade
+from services.trades import analyze_calendar_trade
 import math
 import json
 
@@ -411,16 +411,14 @@ def analyze_trade(
             request.my_team_id: {player['name'] for player in my_after_players},
             request.their_team_id: {player['name'] for player in their_after_players},
         }
-    calendar_impact = (analyze_probabilistic_trade(
-        league_meta, request.period, trade_moves, request.punt_categories,
-        request.processing_delay_days, selected_before, selected_after,
-    ) if request.calculation_engine == "probabilistic" else analyze_calendar_trade(
+    calendar_impact = analyze_calendar_trade(
         league_meta,
         request.period,
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-    )) if request.calculation_engine in {"calendar", "probabilistic"} else None
+        simulation_mode=request.simulation_mode,
+    ) if request.calculation_engine != "legacy" else None
 
     return {
         "my_team": {
@@ -815,16 +813,14 @@ def analyze_multi_team_trade(
         trade.team_id: {"give": trade.give, "receive": trade.receive}
         for trade in request.trades
     }
-    calendar_impact = (analyze_probabilistic_trade(
-        league_meta, request.period, trade_moves, request.punt_categories,
-        request.processing_delay_days, selected_before, selected_after,
-    ) if request.calculation_engine == "probabilistic" else analyze_calendar_trade(
+    calendar_impact = analyze_calendar_trade(
         league_meta,
         request.period,
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-    )) if request.calculation_engine in {"calendar", "probabilistic"} else None
+        simulation_mode=request.simulation_mode,
+    ) if request.calculation_engine != "legacy" else None
 
     return {
         "teams": teams_results,

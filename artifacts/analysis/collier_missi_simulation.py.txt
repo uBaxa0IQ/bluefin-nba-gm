@@ -1,3 +1,6 @@
+# Archived: this historical experiment used the retired seasonal Monte Carlo engine.
+# To reproduce it, use the repository at commit 167513b.
+
 """Illustrative 2026-27 ESPN league season scenarios; no roster mutations."""
 
 from __future__ import annotations

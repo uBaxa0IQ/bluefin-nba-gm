@@ -5,6 +5,8 @@ from time import monotonic
 
 from core.projection import get_matchup_scoring_periods, optimize_daily_lineup
 from core.roster_rules import league_slots
+from core.snapshot import build_league_snapshot
+from .projections import select_projection_roster
 
 
 def _player_row(player):
@@ -34,24 +36,19 @@ def _game_on_day(player, day, *, unstarted=False):
     return game_date > now
 
 
-def _available(player):
-    return getattr(player, "lineupSlot", "") != "IR" and not (
-        getattr(player, "injured", False)
-        and getattr(player, "injuryStatus", "ACTIVE") == "OUT"
-    )
-
-
 def _max_games(players, slots):
     return len(optimize_daily_lineup([_player_row(player) for player in players], slots, fill_slots=True)["starters"])
 
 
-def get_week_game_usage(league_meta, team_ids):
+def get_week_game_usage(league_meta, team_ids, *, period=None, simulation_mode="all",
+                        top_n_players=13, custom_team_id=None, custom_team_players=()):
     """Return counted games and projected week totals for the matchup teams."""
     league = league_meta.league
     week = int(league.currentMatchupPeriod)
     current_day = int(league.scoringPeriodId)
     selected_ids = tuple(sorted(int(team_id) for team_id in team_ids))
-    cache_key = (week, current_day, selected_ids)
+    cache_key = (week, current_day, selected_ids, period, simulation_mode,
+                 top_n_players, custom_team_id, tuple(custom_team_players))
     cache = getattr(league_meta, "_game_usage_cache", None)
     if cache and cache[0] == cache_key and monotonic() - cache[1] < 60:
         return cache[2]
@@ -84,9 +81,21 @@ def get_week_game_usage(league_meta, team_ids):
                 if day == current_day:
                     current_lineups[team_id] = played_players
 
+    snapshot = build_league_snapshot(league_meta, period) if simulation_mode == "top_n" else None
     for team in teams:
         row = rows[team.team_id]
-        roster = [player for player in team.roster if _available(player)]
+        selection_pool = (
+            [player.as_projection_player() for player in snapshot.team_players(team.team_id)]
+            if snapshot else [
+                {**_player_row(player), "lineup_slot": getattr(player, "lineupSlot", "")}
+                for player in team.roster
+            ]
+        )
+        selected_names = {player["name"] for player in select_projection_roster(
+            selection_pool, simulation_mode, top_n_players,
+            custom_team_players if team.team_id == custom_team_id else (),
+        )}
+        roster = [player for player in team.roster if player.name in selected_names]
         remaining = 0
         for day in days:
             if day < current_day:

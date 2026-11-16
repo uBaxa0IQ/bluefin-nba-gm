@@ -1,44 +1,52 @@
-# Probabilistic Matchup Engine
+# Calendar matchup engine
 
-The probabilistic engine is the third calculation mode. It does not replace the existing classic or calendar engines and can be selected independently in Settings.
+The application offers `calendar` (default) and `legacy` (averages/Z-score).
+The seasonal probability engine and `/api/matchup/odds` endpoint have been removed.
+Saved browser engine settings other than `legacy` migrate to `calendar`.
+Draft simulations and draft ML are separate and remain available.
 
-## Scope
+## Roster membership
 
-- ESPN scoring type: `H2H_MOST_CATEGORIES`.
-- Dynamic league categories and lower-is-better categories such as turnovers.
-- Current matchup, lineup decisions, regular-season playoff qualification, and a fixed seeded playoff bracket.
-- Reproducible Monte Carlo results: every response includes the random seed, trial count, and engine version.
+- `top_n`: use the explicit `custom_team_players` selection, including selected IR
+  players. Without a manual selection, take the top `top_n_players` by total Z.
+- `exclude_ir`: use all rostered players except those in the IR slot.
+- `all`: use every rostered player, including IR.
 
-## Model
+OUT, DTD, other injury statuses and expected return dates never remove a selected
+player from a calendar forecast. This is a scenario in which the chosen roster
+plays its scheduled games. Injury labels remain visible, and injured assets
+remain protected from automatic drop recommendations.
 
-Player rates combine season, recent, and projected production with reliability shrinkage. Historical weekly variability is used when enough data exists; conservative category defaults are used otherwise. Percentages are simulated through makes and attempts, so team FG% and FT% remain attempt-weighted.
+## Calculation
 
-Availability is sampled once per player for the week from the current ESPN status. Expected return dates can make a player unavailable for only part of the scoring period. For every distinct availability scenario, the engine rebuilds a legal daily lineup and caches that decision.
+For each scoring day, the Hungarian assignment algorithm places scheduled players
+in valid ESPN active slots. It accounts for multi-position eligibility and daily
+slot competition. Only selected starter-games contribute per-game statistics.
+Percentages and A/TO are recomputed from summed component statistics.
 
-The current score is treated as observed data. Only remaining scheduled games are simulated. Each trial compares every league category and determines the H2H most-categories result.
+Current-week remaining projections add accrued ESPN totals where applicable and
+exclude already started games from future production. Opponent-aware lineup and
+add/drop utility remains a heuristic, not a calibrated win probability.
+
+Roster selection is applied consistently to team, league, scheduled-week and
+season projections, lineup optimization, trade impact, add/drop recommendations
+and future player-game counts. Historical counted games remain observed data.
 
 ## API
 
-`GET /api/matchup/odds`
+- `GET /api/projections/team/{team_id}`
+- `GET /api/projections/league`
+- `GET /api/projections/matchups`
+- `GET /api/projections/season`
+- `GET /api/lineup/{team_id}/optimize`
+- `GET /api/free-agent-recommendations/{team_id}`
 
-Parameters:
+Projection endpoints accept `simulation_mode`, `top_n_players` and a comma-separated
+`custom_team_players` selection; league endpoints use `custom_team_id` for the
+manual selection. Other teams use the same mode with automatic top-N selection.
+Trade endpoints accept the existing per-team selection map and apply roster
+membership consistently before and after the proposed exchange.
 
-- `team_id` — selected team.
-- `week` — ESPN matchup period; defaults to the current period.
-- `period` — statistical rate window (`total`, `last_15`, or another supported period).
-- `remaining_only` — keep observed stats and simulate only unplayed dates.
-- `trials` — requested simulation count, clamped to 100–5000.
-
-The response includes `p_win`, `p_tie`, `p_loss`, per-category probabilities, expected stats, possible category-score distribution, flippable categories, Monte Carlo standard error, assumptions, and data-quality flags.
-
-## Operational behavior
-
-- Default interactive matchup forecast: 400 trials.
-- Expensive league and bracket projections use smaller nested trial counts and short-lived caches.
-- ESPN box-score responses and completed-week variability inputs are cached to avoid duplicate network work.
-- Forecasts are recorded locally and resolved after a matchup finishes. The dashboard reports the Brier score and outcome accuracy when resolved forecasts exist.
-- No automated roster transactions are performed. The engine provides decision support only.
-
-## Known uncertainty
-
-The engine cannot know late scratches, minutes restrictions, coaching decisions, or future roster moves. Those uncertainties are represented only through available status and statistical variance. Probabilities are estimates, not guarantees.
+Forecast history retains compatibility with existing SQLite databases. Calendar
+validation reports category MAE and matchup-result accuracy after observed results
+become available; retired probability fitting and metrics are no longer computed.

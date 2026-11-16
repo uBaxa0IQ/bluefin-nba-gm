@@ -18,7 +18,7 @@ def select_projection_roster(players, simulation_mode="all", top_n_players=13, c
     """Apply the roster setting before choosing legal starters for each day."""
     if simulation_mode not in {"all", "exclude_ir", "top_n"}:
         raise ValueError("Unknown roster mode")
-    selected = list(players)
+    selected = [{**player, "available": True} for player in players]
     if simulation_mode == "exclude_ir":
         return [player for player in selected if str(player.get("lineup_slot") or "").upper() != "IR"]
     if simulation_mode == "top_n":
@@ -43,6 +43,9 @@ def project_team_matchup(
     matchup_period: Optional[int] = None,
     remaining_only: bool = False,
     punt_categories: Iterable[str] = (),
+    simulation_mode: str = "all",
+    top_n_players: int = 13,
+    custom_team_players=(),
 ) -> Dict[str, Any]:
     league = league_metadata.league
     matchup_period = matchup_period or int(league.currentMatchupPeriod)
@@ -52,7 +55,10 @@ def project_team_matchup(
         raise ValueError("Team not found")
 
     player_snapshots = snapshot.team_players(team_id)
-    players = [{**player.as_projection_player(), 'future_only': remaining_only} for player in player_snapshots]
+    players = select_projection_roster(
+        [{**player.as_projection_player(), 'future_only': remaining_only} for player in player_snapshots],
+        simulation_mode, top_n_players, custom_team_players,
+    )
     if remaining_only:
         scoring_periods = get_remaining_scoring_periods(league, matchup_period)
     else:
@@ -62,7 +68,10 @@ def project_team_matchup(
     if remaining_only:
         box = league_metadata.get_matchup_box_score(matchup_period, team_id)
         if box:
-            opponent_players = [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(box['opponent_id'])]
+            opponent_players = select_projection_roster(
+                [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(box['opponent_id'])],
+                simulation_mode, top_n_players,
+            )
             opponent_lineup = build_matchup_lineups(opponent_players, scoring_periods, snapshot.active_slots, punt_categories)
             opponent_box = league_metadata.get_matchup_box_score(matchup_period, box['opponent_id'])
             if opponent_box:
@@ -103,7 +112,7 @@ def project_team_matchup(
         "days": days,
         "snapshot_created_at": snapshot.created_at.isoformat(),
         "objective": 'opponent_category_utility' if opponent is not None else 'games_then_z',
-        "note": "Подбор по предельному вкладу в категории соперника; эвристика, не гарантия победы. Начавшиеся игры исключены из будущей статистики.",
+        "note": "Прогноз по выбранному составу: статусы травм и даты возвращения не исключают игроков. Учитываются календарь и позиции; начавшиеся игры исключены из будущей статистики.",
     }
 
 
@@ -113,6 +122,10 @@ def project_league_matchup(
     matchup_period: Optional[int] = None,
     remaining_only: bool = False,
     punt_categories: Iterable[str] = (),
+    simulation_mode: str = "all",
+    top_n_players: int = 13,
+    custom_team_id=None,
+    custom_team_players=(),
 ) -> Dict[str, Any]:
     league = league_metadata.league
     matchup_period = matchup_period or int(league.currentMatchupPeriod)
@@ -129,6 +142,8 @@ def project_league_matchup(
         scoring_periods,
         punt_categories,
         future_only=remaining_only,
+        simulation_mode=simulation_mode, top_n_players=top_n_players,
+        custom_team_id=custom_team_id, custom_team_players=custom_team_players,
     )
 
     return {

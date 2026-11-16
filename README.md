@@ -171,9 +171,10 @@ npm run dev
 - Statistical periods are generated automatically for the selected season; saved browser settings from an older season are migrated on startup.
 - Frontend preferences are stored in browser `localStorage`.
 - Period selection and weighted-period coefficients are available in common Settings.
-- Settings can switch between three independent engines: classic averages/Z-score, calendar/lineup, and probabilistic calendar Monte Carlo.
-- The probabilistic engine supports ESPN `H2H_MOST_CATEGORIES`, models player availability and statistical variance, re-optimizes valid daily lineups, and reports reproducible matchup, season, and playoff probabilities.
-- `GET /api/matchup/odds` returns the current or selected week's win/tie/loss probabilities, category probabilities, score distribution, model assumptions, quality flags, seed, and engine version.
+- Settings switch between two engines: classic averages/Z-score and calendar/lineup. Saved settings for the retired probability engine migrate to calendar.
+- Calendar forecasts assume every selected player plays, regardless of OUT, DTD or expected return date. `top_n` uses the manually selected players (including IR if selected), or automatic top-N; `exclude_ir` removes only IR players. NBA schedules, positional eligibility and daily slot competition still apply.
+- The same roster mode is used for team/week/season projections, lineup optimization, trade impact, free-agent recommendations and projected game counts.
+- See [`docs/matchup-engine.md`](docs/matchup-engine.md) for the calendar model and API.
 - Backend runtime and service-related settings are in `web/backend/config.py`.
 
 ## API Overview
@@ -233,7 +234,7 @@ reloads, delayed responses, and keyboard input. Playwright starts Vite automatic
 ## Audit fixes and operational notes (September 2026)
 
 - Calendar projections use ESPN active slots and category directions, including turnovers. Assignment uses a polynomial-time Hungarian solver; repeated daily player sets are reused within a projection.
-- Current-week season forecasts combine accrued totals with unstarted games. ESPN expected return dates are respected for players outside IR; unknown return dates and future transactions remain scenario assumptions.
+- Current-week season forecasts combine accrued totals with unstarted games. Calendar forecasts include all players admitted by the roster mode, regardless of injury status or expected return date. Future transactions remain scenario assumptions.
 - Add/drop and remaining-day lineup advice use marginal opponent-category utility. This is an explicitly labelled heuristic, not a calibrated probability or a globally optimal sequence of transactions. Waiver delays and transaction limits must still be checked in ESPN. Dropping injured players or protected core players requires a separate manual decision.
 - Manual roster selections are preserved through trades, replacing outgoing names with incoming names, subject to Top-N limits. Calendar trade impact is explicitly limited to the current matchup.
 - Draft queue and virtual roster are stored per league, season and team. Virtual picks affect prep calculations only; the queue persists into live draft. The app permits switching between draft and seasonal views.

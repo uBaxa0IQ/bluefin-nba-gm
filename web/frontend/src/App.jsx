@@ -1,3 +1,4 @@
+import { normalizeCalculationEngine } from './utils/calculationEngine';
 import React, { lazy, useState, useEffect, useMemo } from 'react';
 import api from './api';
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -107,7 +108,7 @@ function App() {
   });
 
   const [calculationEngine, setCalculationEngine] = useState(() => {
-    return localStorage.getItem('calculationEngine') || 'calendar';
+    return normalizeCalculationEngine(localStorage.getItem('calculationEngine'));
   });
 
   // Сохранение в localStorage при изменении
@@ -222,7 +223,7 @@ function App() {
     setPuntsEnabled(settings.puntsEnabled);
     setSimulationMode(settings.simulationMode);
     setMainTeam(settings.mainTeam);
-    setCalculationEngine(settings.calculationEngine);
+    setCalculationEngine(normalizeCalculationEngine(settings.calculationEngine));
     if (settings.colorByTrend !== undefined) {
       setColorByTrend(settings.colorByTrend);
     }

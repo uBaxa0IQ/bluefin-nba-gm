@@ -51,6 +51,7 @@ const PlayersTab = ({ onPlayerClick, period, puntCategories, simulationMode, col
                     colorByTrend={colorByTrend}
                     mainTeam={mainTeam}
                     calculationEngine={calculationEngine}
+                    simulationMode={simulationMode}
                 />
             ) : (
                 <AllPlayers

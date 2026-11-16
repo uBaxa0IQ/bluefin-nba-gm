@@ -29,9 +29,8 @@ class PlayerSnapshot:
 
     @property
     def available(self) -> bool:
-        return self.lineup_slot != "IR" and not (
-            self.injured and self.injury_status == "OUT"
-        )
+        # Roster modes decide membership; injury labels never remove a player.
+        return True
 
     def as_projection_player(self) -> Dict[str, Any]:
         return {

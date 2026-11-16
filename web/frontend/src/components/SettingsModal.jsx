@@ -1,3 +1,4 @@
+import { normalizeCalculationEngine } from '../utils/calculationEngine';
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import PlayerSelectionModal from './PlayerSelectionModal';
@@ -17,7 +18,7 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialSettings, seasonConfig 
     const [puntsEnabled, setPuntsEnabled] = useState(initialSettings.puntsEnabled !== false);
     const previouslyOpen = useRef(false);
     const [simulationMode, setSimulationMode] = useState(initialSettings.simulationMode || 'top_n');
-    const [calculationEngine, setCalculationEngine] = useState(initialSettings.calculationEngine || 'calendar');
+    const [calculationEngine, setCalculationEngine] = useState(normalizeCalculationEngine(initialSettings.calculationEngine));
     const [mainTeam, setMainTeam] = useState(initialSettings.mainTeam || '');
     const [colorByTrend, setColorByTrend] = useState(initialSettings.colorByTrend !== undefined ? initialSettings.colorByTrend : false);
     const [teams, setTeams] = useState([]);
@@ -124,7 +125,7 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialSettings, seasonConfig 
             setPuntsEnabled(initialSettings.puntsEnabled !== false);
             setMainTeam(initialSettings.mainTeam || '');
             setSimulationMode(initialSettings.simulationMode || 'top_n');
-            setCalculationEngine(initialSettings.calculationEngine || 'calendar');
+            setCalculationEngine(normalizeCalculationEngine(initialSettings.calculationEngine));
             if (initialSettings.colorByTrend !== undefined) {
                 setColorByTrend(initialSettings.colorByTrend);
             }
@@ -370,15 +371,14 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialSettings, seasonConfig 
                                 value={calculationEngine}
                                 onChange={event => setCalculationEngine(event.target.value)}
                             >
-                                <option value="probabilistic">Вероятностный — шансы и сценарии</option>
                                 <option value="calendar">Календарный — расписание и lineup-слоты</option>
                                 <option value="legacy">Простой — средние и Z-score</option>
                             </select>
                             <p className="mt-2 text-xs text-gray-500">
-                                Вероятностный режим использует календарный расчёт как основу и добавляет разброс формы и сценарии травм.
+                                Календарный прогноз использует выбранный состав независимо от статусов травм и дат возвращения.
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
-                                Новый учитывает игровые дни и позиции; классический сохраняет прежнюю методику.
+                                «13 выбранных» учитывает выбранных игроков; «Без IR» исключает только IR. Игровые дни и позиции учитываются.
                             </p>
                         </div>
 
@@ -537,4 +537,3 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialSettings, seasonConfig 
 };
 
 export default SettingsModal;
-

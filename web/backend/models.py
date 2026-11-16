@@ -19,7 +19,6 @@ class TradeAnalysisRequest(BaseModel):
     top_n_players: int = 13
     custom_team_players: Optional[Dict[int, List[str]]] = None
     calculation_engine: str = "calendar"
-    processing_delay_days: int = 0
 
 
 class MockDraftRequest(BaseModel):
@@ -54,6 +53,3 @@ class MultiTeamTradeRequest(BaseModel):
     top_n_players: int = 13
     custom_team_players: Optional[Dict[int, List[str]]] = None
     calculation_engine: str = "calendar"
-    processing_delay_days: int = 0
-
-

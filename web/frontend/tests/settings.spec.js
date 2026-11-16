@@ -43,6 +43,23 @@ async function setup(page, { period = periods.total, enteredSeason = true, setti
     return { draftRequests: () => draftRequests };
 }
 
+test('migrates retired engine and offers only calendar and legacy', async ({ page }) => {
+    await page.addInitScript(() => {
+        if (!localStorage.getItem('calculationEngine')) localStorage.setItem('calculationEngine', 'probabilistic');
+    });
+    await setup(page);
+    await expect.poll(() => saved(page, 'calculationEngine')).toBe('calendar');
+    await page.getByTitle('Настройки', { exact: true }).click();
+    const engines = page.locator('select').filter({ has: page.locator('option[value="calendar"]') });
+    await expect(engines).toHaveValue('calendar');
+    await expect(engines.locator('option')).toHaveCount(2);
+    await engines.selectOption('legacy');
+    await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    await expect.poll(() => saved(page, 'calculationEngine')).toBe('legacy');
+    await page.reload();
+    await expect.poll(() => saved(page, 'calculationEngine')).toBe('legacy');
+});
+
 for (const key of ['total', 'last_7', 'weighted', 'projected']) {
     test(`preserves saved ${key} after draft polling and reload`, async ({ page }) => {
         const state = await setup(page, { period: periods[key] });

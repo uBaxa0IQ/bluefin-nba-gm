@@ -24,6 +24,10 @@ def get_league_projection(
     matchup_period: Optional[int] = None,
     remaining_only: bool = False,
     punt_categories: str = "",
+    simulation_mode: str = "all",
+    top_n_players: int = 13,
+    custom_team_id: Optional[int] = None,
+    custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
 ):
     return project_league_matchup(
@@ -32,6 +36,8 @@ def get_league_projection(
         matchup_period,
         remaining_only,
         [category.strip() for category in punt_categories.split(",") if category.strip()],
+        simulation_mode, top_n_players, custom_team_id,
+        tuple(custom_team_players.split(',')) if custom_team_players else (),
     )
 
 
@@ -84,6 +90,9 @@ def get_team_projection(
     matchup_period: Optional[int] = None,
     remaining_only: bool = False,
     punt_categories: str = "",
+    simulation_mode: str = "all",
+    top_n_players: int = 13,
+    custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
 ):
     try:
@@ -94,6 +103,8 @@ def get_team_projection(
             matchup_period,
             remaining_only,
             [category.strip() for category in punt_categories.split(",") if category.strip()],
+            simulation_mode, top_n_players,
+            tuple(custom_team_players.split(',')) if custom_team_players else (),
         )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

@@ -1,3 +1,4 @@
+import { projectionRosterParams } from '../utils/projectionRoster';
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { saveState, loadState, StorageKeys } from '../utils/statePersistence';
@@ -7,7 +8,21 @@ import { LEAGUE_CATEGORIES as CATEGORIES } from '../utils/categories';
 import { mergeFreeAgentPlayers } from '../utils/freeAgentMarket';
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 
-const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = false, mainTeam, calculationEngine = 'calendar' }) => {
+const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = false, mainTeam, calculationEngine = 'calendar', simulationMode = 'all' }) => {
+    const [customPlayersKey, setCustomPlayersKey] = useState(0);
+    useEffect(() => {
+        const update = event => {
+            if (event.key === `customTeamPlayers_${mainTeam}` || String(event.detail?.teamId) === String(mainTeam)) {
+                setCustomPlayersKey(key => key + 1);
+            }
+        };
+        window.addEventListener('storage', update);
+        window.addEventListener('customTeamPlayersUpdated', update);
+        return () => {
+            window.removeEventListener('storage', update);
+            window.removeEventListener('customTeamPlayersUpdated', update);
+        };
+    }, [mainTeam]);
     const savedState = loadState(StorageKeys.FREE_AGENTS, {});
     const [position, setPosition] = useState(savedState.position || '');
     const [data, setData] = useState(null);
@@ -18,9 +33,6 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
     const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
     const [filters, setFilters] = useState(savedState.filters || {});
     const [playerTrends, setPlayerTrends] = useState({});
-    const [maxTransactions, setMaxTransactions] = useState(savedState.maxTransactions || 2);
-    const [acquisitionsRemaining, setAcquisitionsRemaining] = useState(savedState.acquisitionsRemaining ?? 2);
-    const [waiverDelayDays, setWaiverDelayDays] = useState(savedState.waiverDelayDays || 0);
 
     useEffect(() => {
         setSortBy(personalized ? 'calendar_fit' : 'total_z');
@@ -39,9 +51,7 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
                         position: position || undefined,
                         punt_categories: puntCategories.join(','),
                         calculation_engine: calculationEngine,
-                        max_transactions: maxTransactions,
-                        acquisitions_remaining: acquisitionsRemaining,
-                        waiver_delay_days: waiverDelayDays,
+                        ...projectionRosterParams(simulationMode, mainTeam),
                     } }).then(response => ({ data: response.data })).catch(error => ({ error }))
                     : null;
                 const marketResponse = await api.get('/free-agents', {
@@ -87,7 +97,7 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
 
         load();
         return () => { cancelled = true; };
-    }, [period, position, mainTeam, puntCategories, personalized, calculationEngine, maxTransactions, acquisitionsRemaining, waiverDelayDays]);
+    }, [period, position, mainTeam, puntCategories, personalized, calculationEngine, simulationMode, customPlayersKey]);
 
     // Загружаем тренды, если включена окраска по тренду
     useEffect(() => {
@@ -111,11 +121,8 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
         saveState(StorageKeys.FREE_AGENTS, {
             position,
             filters,
-            maxTransactions,
-            acquisitionsRemaining,
-            waiverDelayDays,
         });
-    }, [position, filters, maxTransactions, acquisitionsRemaining, waiverDelayDays]);
+    }, [position, filters]);
 
 
     const calculateTotalZ = (player) => {
@@ -149,8 +156,8 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
             valA = calculateTotalZ(a);
             valB = calculateTotalZ(b);
         } else if (sortBy === 'calendar_fit') {
-            valA = a.delta_p_win ?? a.matchup_gain ?? a.lineup_gain;
-            valB = b.delta_p_win ?? b.matchup_gain ?? b.lineup_gain;
+            valA = a.matchup_gain ?? a.lineup_gain;
+            valB = b.matchup_gain ?? b.lineup_gain;
             if (valA == null && valB == null) {
                 const zDifference = calculateTotalZ(a) - calculateTotalZ(b);
                 return sortDir === 'asc' ? zDifference : -zDifference;
@@ -229,29 +236,10 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
                 >
                     Фильтры {hasActiveFilters && `(${Object.keys(filters).length})`}
                 </button>
-                {personalized && calculationEngine === 'probabilistic' && (<>
-                    <label className="text-xs text-gray-600">Макс. ходов
-                        <input className="block w-20 border p-2 rounded text-sm" type="number" min="1" max="3" value={maxTransactions} onChange={e => setMaxTransactions(Math.max(1, Math.min(3, Number(e.target.value) || 1)))} />
-                    </label>
-                    <label className="text-xs text-gray-600">Добавлений осталось
-                        <input className="block w-24 border p-2 rounded text-sm" type="number" min="0" max="10" value={acquisitionsRemaining} onChange={e => setAcquisitionsRemaining(Math.max(0, Math.min(10, Number(e.target.value) || 0)))} />
-                    </label>
-                    <label className="text-xs text-gray-600">Waiver, дней
-                        <input className="block w-20 border p-2 rounded text-sm" type="number" min="0" max="7" value={waiverDelayDays} onChange={e => setWaiverDelayDays(Math.max(0, Math.min(7, Number(e.target.value) || 0)))} />
-                    </label>
-                </>)}
             </div>
 
-            {personalized && data && (data.transaction_plans?.[0] || data.method === 'season_complete' || (calculationEngine === 'probabilistic' && acquisitionsRemaining === 0)) && (
-                <div className="mb-4 p-3 rounded bg-blue-50 text-sm text-blue-900">
-                    {data.method === 'season_complete' && 'Нет оставшихся игровых дней.'}
-                    {data.method !== 'season_complete' && calculationEngine === 'probabilistic' && acquisitionsRemaining === 0 && 'Лимит доступных добавлений исчерпан.'}
-                    {data.transaction_plans?.[0] && (
-                        <div className="font-semibold">
-                            Лучший план: {data.transaction_plans[0].actions.map(action => `${action.order}) +${action.add} / −${action.drop}`).join(' → ')}; ΔP(win) {data.transaction_plans[0].delta_p_win >= 0 ? '+' : ''}{(data.transaction_plans[0].delta_p_win * 100).toFixed(1)} п.п.
-                        </div>
-                    )}
-                </div>
+            {personalized && data?.method === 'season_complete' && (
+                <div className="mb-4 p-3 rounded bg-blue-50 text-sm text-blue-900">Нет оставшихся игровых дней.</div>
             )}
 
             {loading && <div>Загрузка...</div>}
@@ -304,11 +292,7 @@ const FreeAgents = ({ onPlayerClick, period, puntCategories, colorByTrend = fals
                                         <td className={`p-2 border text-center font-bold ${player.drop_player ? 'text-green-600' : 'text-gray-400'}`}>
                                                 {player.drop_player ? (
                                                     <>
-                                                        {player.delta_p_win !== undefined ? (
-                                                            <div>{player.delta_p_win >= 0 ? '+' : ''}{(player.delta_p_win * 100).toFixed(1)} п.п. P(win)</div>
-                                                        ) : (
-                                                            <div>{player.matchup_gain > 0 ? '+' : ''}{(player.matchup_gain ?? player.lineup_gain).toFixed(3)} {data.method === 'opponent_category_utility' ? 'балла категорий' : 'Z'}</div>
-                                                        )}
+                                                        <div>{player.matchup_gain > 0 ? '+' : ''}{(player.matchup_gain ?? player.lineup_gain).toFixed(3)} {data.method === 'opponent_category_utility' ? 'балла категорий' : 'Z'}</div>
                                                         <div className="text-xs font-normal text-gray-500">
                                                             {player.player_games_delta > 0 ? '+' : ''}{player.player_games_delta} player-games
                                                         </div>

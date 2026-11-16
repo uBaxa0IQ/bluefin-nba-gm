@@ -78,7 +78,7 @@ def test_trade_rankings_use_the_same_manual_roster_as_raw_totals(monkeypatch, mu
     calendar_selections = []
     monkeypatch.setattr(
         trades, 'analyze_calendar_trade',
-        lambda *args: calendar_selections.append((args[-2], args[-1])) or {},
+        lambda *args, **kwargs: calendar_selections.append((args[-2], args[-1])) or {},
     )
     common = dict(period='2027_total', simulation_mode='top_n', top_n_players=2,
                   custom_team_players={1: ['Outgoing', 'Selected']}, calculation_engine='calendar')
@@ -130,35 +130,3 @@ def test_calendar_trade_uses_selected_players_for_both_scenarios(monkeypatch):
         selected_after={1: {'Selected', 'Incoming'}},
     )
     assert projected == [{'Outgoing', 'Selected'}, {'Selected', 'Incoming'}]
-
-
-def test_probabilistic_trade_uses_selected_players_for_both_scenarios(monkeypatch):
-    rosters = {
-        1: [player('Outgoing', 3), player('Selected', 2), player('Bench', 10)],
-        2: [player('Incoming', 1), player('Opponent', 0)],
-    }
-    monkeypatch.setattr(trade_services, 'build_engine_inputs', lambda *args: {'players_by_team': rosters})
-    monkeypatch.setattr(trade_services, 'find_opponent', lambda *args: 2)
-    overrides = []
-
-    def simulate(*args, roster_overrides=None, **kwargs):
-        overrides.append({team: {p['name'] for p in roster} for team, roster in roster_overrides.items()})
-        return {'seed': 1, 'p_win': 0.5}
-
-    monkeypatch.setattr(trade_services, 'simulate_pair', simulate)
-    monkeypatch.setattr(trade_services, 'odds_delta', lambda *args: {})
-    season_overrides = []
-
-    def season(*args, roster_overrides=None, **kwargs):
-        season_overrides.append({team: {p['name'] for p in roster} for team, roster in roster_overrides.items()})
-        return {'standings': []}
-
-    monkeypatch.setattr(trade_services, 'project_regular_season_probabilistic', season)
-    metadata = SimpleNamespace(league=SimpleNamespace(currentMatchupPeriod=1))
-    trade_services.analyze_probabilistic_trade(
-        metadata, '2027_total', {1: {'give': ['Outgoing'], 'receive': ['Incoming']}},
-        selected_before={1: {'Outgoing', 'Selected'}},
-        selected_after={1: {'Selected', 'Incoming'}},
-    )
-    assert overrides == [{1: {'Outgoing', 'Selected'}}, {1: {'Selected', 'Incoming'}}]
-    assert season_overrides == overrides
