@@ -16,7 +16,8 @@ import sqlite3
 
 def project_regular_season(league_metadata, period: str, calculation_engine: str = "calendar",
                            simulation_mode="all", top_n_players=13,
-                           custom_team_id=None, custom_team_players=()) -> Dict[str, Any]:
+                           custom_team_id=None, custom_team_players=(), snapshot_override=None,
+                           custom_rosters=None, punt_categories=(), record_forecasts=True) -> Dict[str, Any]:
     league = league_metadata.league
     teams = league_metadata.get_teams()
     regular_season_end = int(league.settings.reg_season_count)
@@ -35,7 +36,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
 
     has_future_matchups = first_projection_period <= regular_season_end
     if has_future_matchups:
-        snapshot = build_league_snapshot(league_metadata, period)
+        snapshot = snapshot_override or build_league_snapshot(league_metadata, period)
         legacy_team_stats = None
         if calculation_engine == "legacy":
             legacy_team_stats = {}
@@ -69,6 +70,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
                     snapshot, teams, scoring_periods, future_only=matchup_period == current_period,
                     simulation_mode=simulation_mode, top_n_players=top_n_players,
                     custom_team_id=custom_team_id, custom_team_players=custom_team_players,
+                    custom_rosters=custom_rosters, punt_categories=punt_categories,
                 )
                 if matchup_period == current_period:
                     for team in teams:
@@ -78,7 +80,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
             for matchup in schedule_by_period[matchup_period]:
                 team1_id = matchup["team1_id"]
                 team2_id = matchup["team2_id"]
-                if matchup_period > current_period and calculation_engine == 'calendar' and simulation_mode == 'all':
+                if record_forecasts and matchup_period > current_period and calculation_engine == 'calendar' and simulation_mode == 'all':
                     try:
                         record(league_metadata.league_id, league_metadata.year, matchup_period, team1_id, team2_id, period,
                                team_stats[team1_id]['stats'], team_stats[team2_id]['stats'], CATEGORIES, REVERSE_CATEGORIES)

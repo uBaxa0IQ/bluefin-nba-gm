@@ -47,8 +47,8 @@ services:
 
   frontend:
     build:
-      context: ./web/frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web/frontend/Dockerfile
       args:
         - VITE_API_URL=${VITE_API_URL:-/api}
     container_name: nba-frontend

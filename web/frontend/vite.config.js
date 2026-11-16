@@ -1,14 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { bluefinAssets } from './bluefin-assets'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
-  build: {
-    rollupOptions: {
-      output: { manualChunks: { charts: ['recharts'] } },
-    },
-  },
+  plugins: [react(), bluefinAssets()],
   server: {
     host: '127.0.0.1',
     proxy: {

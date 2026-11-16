@@ -215,7 +215,7 @@ def project_scheduled_matchups(league_metadata, period: str, matchup_period: int
 
 def project_snapshot_for_matchup(snapshot, teams, scoring_periods, punt_categories=(), future_only=False,
                                  simulation_mode="all", top_n_players=13,
-                                 custom_team_id=None, custom_team_players=()):
+                                 custom_team_id=None, custom_team_players=(), custom_rosters=None):
     """Проецирует все команды из одного snapshot для заданных scoring days."""
     team_stats = {}
     team_projections = {}
@@ -224,7 +224,7 @@ def project_snapshot_for_matchup(snapshot, teams, scoring_periods, punt_categori
             {**player.as_projection_player(), 'future_only': future_only}
             for player in snapshot.team_players(team.team_id)
         ], simulation_mode, top_n_players,
-            custom_team_players if team.team_id == custom_team_id else ())
+            (custom_rosters or {}).get(team.team_id, custom_team_players if team.team_id == custom_team_id else ()))
         lineup = build_matchup_lineups(players, scoring_periods, slots=snapshot.active_slots, punt_categories=punt_categories)
         stats = project_team_stats(players, lineup["selected_games"])
         team_stats[team.team_id] = {"name": team.team_name, "stats": stats}
