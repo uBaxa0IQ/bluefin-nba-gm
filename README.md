@@ -165,6 +165,8 @@ npm install
 npm run dev
 ```
 
+The development proxy defaults to `http://127.0.0.1:8000`. If the backend uses another port, set `API_PROXY_TARGET=http://127.0.0.1:8001` in `web/frontend/.env.local`. Keep browser API requests on `/api`; `VITE_API_URL` controls the browser API base URL separately.
+
 ## Configuration
 
 - League ID, season year and default team are configured in `.env`.

@@ -1,8 +1,48 @@
 # Calendar Monte Carlo engine (v1)
 
-The engine runs without frontend changes or a backend restart. It currently supports
+The engine can run from the CLI without starting the frontend or backend. It supports
 ESPN H2H Most Categories leagues with one division and H2H_RECORD playoff seeding.
 It simulates final **regular-season positions**, not playoff-bracket championships.
+
+## Web interface
+
+The application exposes the engine under **Симуляции → Вероятностный**.
+The view automatically submits the current statistics period, roster mode, resolved
+manual selections and punt settings, always using 10,000 trials. There is no run
+button, trial-count picker or calculation metadata panel.
+Calculations run in one background worker, so the app remains usable. Identical
+requests for the same league snapshot reuse the existing job. A second different
+job is rejected while the worker is busy.
+
+The view has two modes: **Места** (final rank probabilities) and **Соперники**
+(a weekly matrix of every team against every opponent). A matrix cell is the
+probability that its row team beats its column team, using that week's calendars.
+Click a cell to open the category probabilities; diagonal cells are not interactive.
+The chosen mode and matrix week survive navigation and reload.
+
+Click a team in the rank table to see its official remaining schedule, then a week
+to see category probabilities. The Any Opponent view in that panel is also available.
+All values in the rank grid are percentages.
+
+**Составы расчёта** displays the archived roster names in the displayed result's
+`metadata.rosters`, with a team selector. It never substitutes the current browser
+selection for the archived one. Changing views, weeks or the roster viewer does not
+start another calculation. Matchup and roster dialogs keep the clicked result snapshot
+if a newer calculation finishes while they are open.
+
+Completed jobs persist under `.cache/probabilistic/<league>-<season>/` and are
+restored after navigation or reload. Changed settings/data automatically trigger a debounced recalculation. A previous
+result stays visible only if its input settings still match. A result for a different
+roster is never restored or displayed, including late completions of older jobs. Data freshness is checked every minute while the
+view is open. A failed recalculation preserves the last good result.
+Restarted servers mark interrupted jobs as failed instead of polling forever.
+Backend code changes require restarting a server launched without `--reload`.
+
+API:
+
+- `POST /api/probabilistic/jobs`: submit settings; returns job ID and status.
+- `GET /api/probabilistic/jobs/{job_id}`: progress or full completed result.
+- `GET /api/probabilistic/latest`: last successful result for the active league.
 
 Run from the project root:
 
@@ -94,6 +134,24 @@ At 10,000 trials the worst-case Monte Carlo standard error is 0.5 percentage poi
 The model has not yet been calibrated or validated on held-out historical weeks.
 Do not interpret high probabilities as evidence that future injuries or roster changes
 are unlikely. The first live report is a model demonstration, not a measured accuracy claim.
+
+## Trade rank distributions
+
+Trade evaluation also starts an asynchronous paired forecast at
+`POST /api/probabilistic/trade/jobs`; poll `/api/probabilistic/trade/jobs/{job_id}`.
+It uses 3,000 trials for each side and only official matchups. Each player/week
+has a stable random stream shared before and after the trade, including when
+the player's fantasy team or selected game count changes. Completed results and
+current-week credited totals stay fixed; future lineups are rebuilt after moving
+players and carrying manual selections through the trade.
+
+The running job publishes the baseline before calculating the after-trade result.
+Baseline standings are cached in memory across proposals for the same league,
+refresh version, period and roster settings. The UI shows two rank distributions,
+expected ranks and playoff probabilities, and discards results when trade inputs
+change. Errors in this forecast do not prevent the regular trade analysis.
+The trial count is fixed server-side; worst-case sampling error is approximately
+±1.8 percentage points at 95%, separate from model uncertainty.
 
 ## Validation
 

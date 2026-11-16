@@ -19,7 +19,7 @@ sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'core'))
 
 from config import get_cors_origins
-from routers import teams, analytics, simulation, players, trades, dashboard, balance, lineup, prompt, projections, settings, playoff, draft, bluefin
+from routers import teams, analytics, simulation, players, trades, dashboard, balance, lineup, prompt, projections, settings, playoff, draft, bluefin, probabilistic
 from dependencies import refresh_cached_league
 
 # Настройка логирования
@@ -117,6 +117,7 @@ app.include_router(settings.router)
 app.include_router(playoff.router)
 app.include_router(draft.router)
 app.include_router(bluefin.router)
+app.include_router(probabilistic.router)
 
 
 @app.get("/")

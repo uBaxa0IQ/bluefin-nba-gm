@@ -7,7 +7,7 @@ app.addEventListener('click',async event=>{
  if(el.dataset.compare){toggleCompare(el.dataset.compare);render();return;}
  if(el.dataset.remove){s[el.dataset.remove]=s[el.dataset.remove].filter(n=>n!==el.dataset.name);invalidate();save();render();return;}
  if(el.dataset.sort){s.direction=s.sort===el.dataset.sort?-s.direction:-1;s.sort=el.dataset.sort;s.sortValues=s.values;render();return;}
- if(el.dataset.set){s[el.dataset.set]=el.dataset.value;if(el.dataset.set==='tradeValues')save();render();return;}
+ if(el.dataset.set){s[el.dataset.set]=el.dataset.value;if(['tradeValues','simMode','probTeamView','probView'].includes(el.dataset.set))save();render();return;}
  if(el.dataset.match){s.detail={team:+el.dataset.match,week:+el.dataset.week};s.overlay='match';render();return;}
  if(el.dataset.simTeam){s.detail={team:+el.dataset.simTeam,path:el.dataset.source==='forecast'?seasonPath():simulationPath(),season:el.dataset.source==='forecast'||s.simMode==='calendar'};s.overlay='sim-details';render();return;}
  const action=el.dataset.action;
@@ -26,17 +26,18 @@ app.addEventListener('click',async event=>{
   s.tradeBusy=true;s.tradeError='';render();
   const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),calculation_engine:'calendar',custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
   const fingerprint=JSON.stringify([s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()]);
-  try{const d=await request('/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===JSON.stringify([s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()]))s.trade=d;}
+  try{const d=await request('/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===JSON.stringify([s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()])){s.trade=d;if(probabilityEnabled())void tradeProbabilityRun(body);}}
   catch(e){s.tradeError=e.message;}finally{s.tradeBusy=false;render();}
  }
 });
 app.addEventListener('change',async event=>{
  const el=event.target;
- if(el.dataset.control){const k=el.dataset.control,previous=s[k];s[k]=['team','compare','pickTeam','week','simWeek','weeksCount','calendarWeek','tradeTeam','tradeMyTeam'].includes(k)?(+el.value||null):el.value;
+ if(el.dataset.control){const k=el.dataset.control,previous=s[k];s[k]=['team','compare','pickTeam','week','simWeek','weeksCount','calendarWeek','tradeTeam','tradeMyTeam','probWeek','probOpponent','probMatrixWeek','probRosterTeam'].includes(k)?(+el.value||null):el.value;
   if(k==='tradeMyTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeTeam=previous;s.receive=[];}
   if(k==='tradeTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeMyTeam=previous;s.give=[];}
   if(k==='tradeTeam'||k==='tradeMyTeam'){if(k==='tradeTeam'){s.receive=[];s.receiveSearch='';s.rosterScroll.receive=0;}else{s.give=[];s.giveSearch='';s.rosterScroll.give=0;}invalidate();save();}
   if(k==='team'){s.tab='overview';s.compare=null;}
+  if(['probWeek','probOpponent','probMatrixWeek','probRosterTeam'].includes(k))save();
   if(k==='simWeek')s.weeksCount=Math.min(s.weeksCount,s.simWeek);
   if(k==='theme')s.theme=applyTheme(s.theme);
   if(['lang','coloring','theme'].includes(k))save();

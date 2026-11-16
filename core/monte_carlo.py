@@ -80,7 +80,8 @@ def rank_trial(points, games, h2h_points, h2h_games, rng):
 
 def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categories=(),
                      trials=10_000, seed=20261116, playoff_teams=8,
-                     historical_h2h=(), all_opponents=True, matchup_tie_category=None):
+                     historical_h2h=(), all_opponents=True, matchup_tie_category=None,
+                     paired_draws=False):
     """Probabilities are fractions in [0,1]; weeks are simulated jointly.
 
     teams: [{team_id, team_name, wins, losses, ties}]. historical_h2h:
@@ -140,7 +141,12 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                     raise ValueError('Invalid scheduled game count')
                 if count:
                     distribution = distributions[player_id]
-                    draws = rng.choice(len(distribution.samples), size=(trials, count), p=distribution.weights)
+                    if paired_draws:
+                        # Stable player/week streams survive roster and lineup changes.
+                        player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id]))
+                        draws = player_rng.choice(len(distribution.samples), size=(count, trials), p=distribution.weights).T
+                    else:
+                        draws = rng.choice(len(distribution.samples), size=(trials, count), p=distribution.weights)
                     totals[:, team_index] += distribution.samples[draws].sum(axis=1)
         stats = category_arrays(totals, categories) * direction
         tie_stats = category_arrays(totals, [matchup_tie_category])[..., 0] if matchup_tie_category else None

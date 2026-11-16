@@ -19,8 +19,8 @@ const sorted=ps=>[...ps].sort((a,b)=>z(b)-z(a));
 const tname=team=>teams.find(t=>t.team_id===+team)?.team_name??'Команда';
 const findPlayer=pid=>players.find(p=>id(p)===String(pid))??knownPlayers.get(String(pid));
 const tradeStateKeys=['tradeMyTeam','tradeTeam','give','receive','rosterOpen','giveSearch','receiveSearch','tradeValues','tradeSummaryOpen'];
-function save(){if(settings)localStorage.setItem(key(),JSON.stringify(Object.fromEntries(['period','rosterMode','picks','punts','puntsEnabled','columns','comparePlayers',...tradeStateKeys].map(k=>[k,s[k]]))));localStorage.setItem('bluefin-ui',JSON.stringify({lang:s.lang,coloring:s.coloring,theme:s.theme}));}
-async function request(path,options={}){const token=sessionStorage.getItem('nba-api-token');const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(!r.ok){let m=`Ошибка ${r.status}`;try{const d=await r.json();if(typeof d.detail==='string')m=d.detail;}catch{}throw Error(m);}const d=await r.json();if(d?.error)throw Error(d.error);return d;}
+function save(){if(settings)localStorage.setItem(key(),JSON.stringify(Object.fromEntries(['period','rosterMode','picks','punts','puntsEnabled','columns','comparePlayers',...tradeStateKeys,...probabilityStateKeys].map(k=>[k,s[k]]))));localStorage.setItem('bluefin-ui',JSON.stringify({lang:s.lang,coloring:s.coloring,theme:s.theme}));}
+async function request(path,options={}){const token=sessionStorage.getItem('nba-api-token');const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(!r.ok){let m=`Ошибка ${r.status}`;try{const d=await r.json();if(typeof d.detail==='string')m=d.detail;}catch{}const error=Error(m);error.status=r.status;throw error;}const d=await r.json();if(d?.error)throw Error(d.error);return d;}
 function resource(path,ttl=Infinity){const hit=cache.get(path);if(hit&&!hit.pending&&Date.now()-(hit.created??0)>ttl)cache.delete(path);if(!cache.has(path)){const entry={pending:true,created:Date.now()};cache.set(path,entry);request(path).then(data=>{entry.data=data;entry.pending=false;entry.created=Date.now();}).catch(e=>{entry.error=e.message;entry.pending=false;}).finally(render);}return cache.get(path);}
 const blank=m=>`<div class="pe-blank">${E(m)}</div>`;
 function response(r,view){return r.pending?blank('Загрузка…'):r.error?`<div class="pe-error">${E(r.error)} ${button('Повторить','retry')}</div>`:view(r.data);}
@@ -81,15 +81,18 @@ function matchupsPage(){return `<div class="pe-head"><h1>Матчапы</h1><sel
 function simulationPath(){if(s.simMode==='calendar')return seasonPath();const p=params(myTeam);p.set('custom_team_id',myTeam);p.set('mode',s.simMode);p.set('weeks_count',s.weeksCount);return `/api/simulation-detailed/${s.simMode==='matchup'?s.simWeek:1}?${p}`;}
 function standings(d){return d.standings??d.results??[];}
 
+function simulationTabs(){return tabs([['matchup',tr('По матчапам','By matchups')],['z_scores',tr('По Z-score','By Z-score')],['team_stats_avg',tr('По средним','By averages')],['calendar',tr('По календарю','By schedule')],...(probabilityEnabled()?[['probabilistic',tr('Вероятностный','Probabilistic')]]:[])],'simMode');}
 function simulationPage(){
+ if(s.simMode==='probabilistic'&&!probabilityEnabled())s.simMode='matchup';
+ if(s.simMode==='probabilistic')return `<div class="pe-head"><h1>${tr('Симуляции','Simulations')}</h1></div>`+simulationTabs()+probabilisticPage();
  if(s.simMode==='matchup'){
   const entry=resource(simulationPath());
   if(entry.error==='No stats found'){
    if(s.simWeek>1){s.simWeek--;s.weeksCount=Math.min(s.weeksCount,s.simWeek);return simulationPage();}
-   return `<div class="pe-head"><h1>${tr('Симуляции','Simulations')}</h1></div>`+tabs([['matchup','По матчапам'],['z_scores','По Z-score'],['team_stats_avg','По средним'],['calendar','По календарю']],'simMode')+blank(tr('Матчи ещё не начались','Games have not started yet'));
+   return `<div class="pe-head"><h1>${tr('Симуляции','Simulations')}</h1></div>`+simulationTabs()+blank(tr('Матчи ещё не начались','Games have not started yet'));
   }
  }
- return `<div class="pe-head"><h1>Симуляции</h1></div>`+tabs([['matchup','По матчапам'],['z_scores','По Z-score'],['team_stats_avg','По средним'],['calendar','По календарю']],'simMode')+(s.simMode==='matchup'?`<div class="pe-controls pe-row"><select class="pe-select" data-control="simWeek" aria-label="Неделя симуляции">${(weeks.simulation_weeks??weeks.weeks).map(w=>`<option value="${w}" ${+s.simWeek===w?'selected':''}>Неделя ${w}</option>`).join('')}</select><select class="pe-select" data-control="weeksCount" aria-label="Усреднить недели">${Array.from({length:+s.simWeek},(_,i)=>i+1).map(n=>`<option value="${n}" ${+s.weeksCount===n?'selected':''}>${n===1?'Одна неделя':'Последние '+n+' недели'}</option>`).join('')}</select></div>`:'')+(s.simMode==='matchup'&&weeks.latest_stats_week===null?blank(tr('Матчи ещё не начались','Games have not started yet')):response(resource(simulationPath()),d=>standingsTable(d,'simulation')));}
+ return `<div class="pe-head"><h1>Симуляции</h1></div>`+simulationTabs()+(s.simMode==='matchup'?`<div class="pe-controls pe-row"><select class="pe-select" data-control="simWeek" aria-label="Неделя симуляции">${(weeks.simulation_weeks??weeks.weeks).map(w=>`<option value="${w}" ${+s.simWeek===w?'selected':''}>Неделя ${w}</option>`).join('')}</select><select class="pe-select" data-control="weeksCount" aria-label="Усреднить недели">${Array.from({length:+s.simWeek},(_,i)=>i+1).map(n=>`<option value="${n}" ${+s.weeksCount===n?'selected':''}>${n===1?'Одна неделя':'Последние '+n+' недели'}</option>`).join('')}</select></div>`:'')+(s.simMode==='matchup'&&weeks.latest_stats_week===null?blank(tr('Матчи ещё не начались','Games have not started yet')):response(resource(simulationPath()),d=>standingsTable(d,'simulation')));}
 function tradePlayerChips(key){return s[key].map(name=>{const p=players.find(p=>p.name===name);return `<span class="bf-chip">${p?link(name,'player',id(p)):E(name)}<button data-remove="${key}" data-name="${E(name)}" aria-label="Убрать ${E(name)}">×</button></span>`;}).join('');}
 function tradePage(){
  const side=(team,key)=>{
@@ -104,7 +107,7 @@ function tradePage(){
   <div class="bf-trade-builder">${side(s.tradeMyTeam,'give')}${side(s.tradeTeam,'receive')}</div>
   <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!s.give.length||!s.receive.length)}</div>
   ${s.tradeError?`<div class="pe-error" role="alert">${E(s.tradeError)}</div>`:''}
-  ${s.trade?`<div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')]],'tradeValues')}</div>${tradeResult(s.trade)}`:''}`;
+  ${s.trade?`<div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')]],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}`:''}`;
 }
 function tradeRank(rank){
  if(!Number.isInteger(rank)||rank<1)return '';

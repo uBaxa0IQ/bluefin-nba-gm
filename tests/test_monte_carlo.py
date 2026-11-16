@@ -80,6 +80,17 @@ def test_seed_reproducibility_and_probability_mass():
     assert m['p_win'] + m['p_tie'] + m['p_loss'] == pytest.approx(1)
 
 
+def test_paired_player_draws_follow_player_when_traded():
+    data = {11: distribution({'PTS': 1}, {'PTS': 11}),
+            22: distribution({'PTS': 3}, {'PTS': 8})}
+    before = run([WeekPlan(1, {1: {11: 3}, 2: {22: 3}}, ((1, 2),))], data, paired_draws=True)
+    after = run([WeekPlan(1, {1: {22: 3}, 2: {11: 3}}, ((1, 2),))], data, paired_draws=True)
+    a, b = before['weeks'][0]['matchups'][0], after['weeks'][0]['matchups'][0]
+    assert a['p_win'] == b['p_loss']
+    assert a['p_loss'] == b['p_win']
+    assert a['p_tie'] == b['p_tie']
+
+
 def test_h2h_tie_breaker_uses_tied_group_and_restarts():
     rng = np.random.default_rng(1)
     h2h_games = np.ones((3, 3), dtype=int) - np.eye(3, dtype=int)
@@ -173,6 +184,9 @@ def test_calendar_adapter_freezes_legal_lineup_and_keeps_injured_selected_player
     assert plan['historical_h2h'] == [(1, 2, 1)]
     assert snapshot.players[0].injured is True
     assert len(snapshot.players) == 3
+    manual = adapter.prepare_season(metadata, 'test', snapshot=snapshot, custom_rosters={1: ['12']})
+    assert manual['weeks'][0].games[1] == {12: 1}
+    assert manual['metadata']['rosters']['1'] == ['12']
     # Missing shot denominators must not silently discard current-week actual stats.
     metadata.get_matchup_box_score = lambda w, t: {'totals': {'PTS': 10, 'FG%': .5}}
     with pytest.raises(ValueError, match='shot components missing'):

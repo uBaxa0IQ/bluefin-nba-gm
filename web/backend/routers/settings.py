@@ -130,7 +130,9 @@ def update_draft_connection_mode(
 
 @router.get("")
 def get_settings(league_meta=Depends(get_league_meta)):
+    from core import feature_flags
     return {
+        "features": {"probabilistic": feature_flags.PROBABILISTIC_ENABLED},
         "weighted_coefficients": serialize_coefficients(),
         "season": serialize_season(league_meta),
     }
