@@ -131,6 +131,40 @@ test('calculation rosters show the archived players rather than the current brow
     expect(calls).toHaveLength(1);
 });
 
+test('saved trades stay in browser storage and load without evaluating the trade', async ({ page }) => {
+    await setup(page);
+    let evaluations = 0;
+    await page.route('**/api/bluefin/trade', route => { evaluations++; return route.fulfill({ json: {} }); });
+    await page.locator('[data-page="trades"]').first().click();
+    await page.locator('[data-control="tradeMyTeam"]').selectOption('1');
+    await page.locator('[data-control="tradeTeam"]').selectOption('2');
+    await page.locator('[data-trade="give"]').first().check();
+    await page.locator('[data-trade="receive"]').first().check();
+    await page.locator('[data-action="save-trade"]').click();
+    await expect(page.locator('[data-action="save-trade"]')).toBeDisabled();
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('bluefin-saved-trades:123:2027')));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].teams[0].players[0].player_id).toBe('11');
+    await page.reload();
+    await page.locator('[data-page="trades"]').first().click();
+    await page.locator('[data-trade="give"]').first().uncheck();
+    await page.locator('[data-action="saved-trades"]').click();
+    await expect(page.locator('.bf-saved-trade')).toHaveCount(1);
+    await expect(page.locator('.bf-saved-trade')).toContainText('Player A');
+    await expect(page.locator('.bf-saved-trade')).toContainText('Player B');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.getByRole('dialog').evaluate(d => d.scrollWidth <= d.clientWidth)).toBe(true);
+    await page.locator('[data-action="saved-trade-load"]').click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('[data-trade="give"]').first()).toBeChecked();
+    await expect(page.locator('[data-trade="receive"]').first()).toBeChecked();
+    expect(evaluations).toBe(0);
+    await page.locator('[data-action="saved-trades"]').click();
+    await page.locator('[data-action="saved-trade-delete"]').click();
+    await expect(page.locator('.bf-saved-trade')).toHaveCount(0);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('bluefin-saved-trades:123:2027')))).toEqual([]);
+});
+
 test('team category probabilities reuse the season result, orient odds and show category details', async ({ page }) => {
     const calls = await setup(page);
     await page.route('**/api/bluefin/season?*', route => route.fulfill({ json: { standings: [] } }));

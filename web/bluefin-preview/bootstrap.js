@@ -11,6 +11,11 @@ app.addEventListener('click',async event=>{
  if(el.dataset.match){s.detail={team:+el.dataset.match,week:+el.dataset.week};s.overlay='match';render();return;}
  if(el.dataset.simTeam){s.detail={team:+el.dataset.simTeam,path:el.dataset.source==='forecast'?seasonPath():simulationPath(),season:el.dataset.source==='forecast'||s.simMode==='calendar'};s.overlay='sim-details';render();return;}
  const action=el.dataset.action;
+ if(action==='save-trade'){saveCurrentTrade();return;}
+ if(action==='saved-trades'){s.savedTradesError='';s.overlay='saved-trades';render();return;}
+ if(action==='saved-trade-load'){loadSavedTrade(el.dataset.id);return;}
+ if(action==='saved-trade-delete'){writeSavedTrades(readSavedTrades().filter(t=>t.id!==el.dataset.id));render();return;}
+
  if(action==='close'||action==='backdrop'&&event.target===el){s.overlay=null;render();return;}
  if(['settings','columns','filters','comparison','forecast'].includes(action)){s.overlay=action;if(action==='settings')s.pickTeam=s.page==='team'?s.team:myTeam;render();return;}
  if(action==='retry'){for(const [k,v] of cache)if(v.error)cache.delete(k);render();return;}

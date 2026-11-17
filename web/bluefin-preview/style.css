@@ -284,3 +284,17 @@ body.bf-modal-open{overflow:hidden}
 @media(max-width:420px){#paper-exploration .bf-settings-fields{grid-template-columns:minmax(0,1fr);gap:16px}}
 
 #paper-exploration .bf-category-probabilities tfoot td:has(.bf-prob-cell){padding:0}
+
+#paper-exploration .bf-saved-trade-controls{gap:20px}
+#paper-exploration .bf-saved-trade-controls button:disabled{opacity:.45;cursor:default}
+#paper-exploration .bf-saved-trade{display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--pe-line);padding:18px 0}
+#paper-exploration .bf-saved-trade:first-child{padding-top:0}
+#paper-exploration .bf-saved-trade-load{flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:20px;align-items:center;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0}
+#paper-exploration .bf-saved-trade-load>span{min-width:0;overflow-wrap:anywhere}
+#paper-exploration .bf-saved-trade-load small{display:block;color:var(--pe-muted);margin-bottom:6px;font-size:11px}
+#paper-exploration .bf-saved-trade-load:hover:not(:disabled){color:var(--pe-blue)}
+#paper-exploration .bf-saved-trade-load:disabled{opacity:.45;cursor:default}
+#paper-exploration .bf-saved-trade-arrow{color:var(--pe-muted)}
+#paper-exploration .bf-saved-trade-stale{grid-column:1/-1}
+#paper-exploration .bf-saved-trade-delete{font-size:19px;min-width:28px;min-height:32px;flex-shrink:0}
+@media(max-width:480px){#paper-exploration .bf-saved-trade-load{gap:12px}#paper-exploration .bf-saved-trade-controls{gap:16px}}
