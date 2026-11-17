@@ -241,3 +241,7 @@ body.bf-modal-open{overflow:hidden}
 #paper-exploration .bf-trade-roster-control{display:flex;justify-content:center;margin:8px 0 20px}
 
 #paper-exploration .bf-prob-loading{padding:32px 0;color:var(--pe-muted)}
+
+/* Top-eight boundary in the probabilistic standings and rank distribution. */
+#paper-exploration .bf-playoff-cut tbody tr:nth-child(8)>td{border-bottom:1px solid var(--pe-blue)}
+#paper-exploration .bf-playoff-cut thead th:nth-child(11),#paper-exploration .bf-playoff-cut tbody td:nth-child(11){border-right:1px solid var(--pe-blue)}
