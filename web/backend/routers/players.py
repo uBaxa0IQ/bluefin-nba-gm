@@ -289,6 +289,8 @@ def get_player_trends(
         
         # Фильтруем статистику по категориям
         filtered_stats = league_meta.filter_stats_by_categories(player_stats)
+        average_stats = league_meta.filter_stats_by_categories(
+            league_meta.get_player_stats(player_obj, period, 'avg') or {})
         
         # Рассчитываем Z-scores для всей лиги за этот период (только игроки в составах)
         period_z_data = calculate_z_scores(league_meta, period, exclude_ir=False)
@@ -320,6 +322,7 @@ def get_player_trends(
             'period_key': period,
             'order': period_info['order'],
             'stats': filtered_stats,
+            'stats_avg': average_stats,
             'z_scores': player_z_scores,
             'total_z': round(total_z, 2)
         })
