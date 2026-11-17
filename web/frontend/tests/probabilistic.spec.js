@@ -219,12 +219,14 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await setup(page);
     const team = { name: 'Team', before_z: 1, after_z: 2, delta: 1, categories: {}, raw_categories: {} };
     await page.route('**/api/bluefin/trade', route => route.fulfill({ json: { my_team: team, their_team: team } }));
-    const before = result.standings;
+    const before = result.standings.map(t => ({ ...t, category_probabilities: { PTS: t.team_id === 1 ? .6 : .4, REB: t.team_id === 1 ? .8 : .2 } }));
     const after = before.map(t => ({ ...t, expected_rank: t.expected_rank + .1, p_playoffs: .5,
-        rank_probabilities: { 1: .5, 2: .5 } }));
+        rank_probabilities: { 1: .5, 2: .5 }, category_probabilities: { PTS: t.team_id === 1 ? .72 : .3, REB: t.team_id === 1 ? .75 : .35 } }));
     let release;
     const gate = new Promise(resolve => { release = resolve; });
+    let tradeStarts = 0;
     await page.route('**/api/probabilistic/trade/jobs', route => {
+        tradeStarts++;
         expect(route.request().postDataJSON().trials).toBe(3000);
         return route.fulfill({ json: { job_id: 'a'.repeat(32), status: 'running', stage: 'after', result: { before, after: null } } });
     });
@@ -241,8 +243,14 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await expect(page.locator('.bf-trade-prob svg')).toHaveCount(2);
     await expect(page.locator('.bf-trade-prob polyline')).toHaveCount(2);
     await expect(page.locator('.bf-trade-prob-impact')).not.toContainText('Считаем');
+    await page.locator('[data-set="tradeValues"][data-value="probability"]').click();
+    await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '…', '…', '40.0%', '…', '…']);
     release();
     await expect(page.locator('.bf-trade-prob polyline')).toHaveCount(4);
+    await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '72.0%', '+12.0 п.п.', '40.0%', '30.0%', '-10.0 п.п.']);
+    await page.locator('[data-set="tradeValues"][data-value="raw"]').click();
+    await page.locator('[data-set="tradeValues"][data-value="probability"]').click();
+    expect(tradeStarts).toBe(1);
     await expect(page.locator('.bf-trade-prob-impact section').first()).toContainText('1.3 → 1.4');
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

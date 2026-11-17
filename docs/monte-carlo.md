@@ -146,6 +146,12 @@ current-week credited totals stay fixed; future lineups are rebuilt after moving
 players and carrying manual selections through the trade.
 
 The running job publishes the baseline before calculating the after-trade result.
+The trade results switch includes Probabilities: each category shows the average
+win chance against that team's remaining official opponents, before and after
+the trade, plus the difference in percentage points. These values are aggregated
+from the same paired forecast, including correct away-team orientation; no extra
+simulation is started by switching table modes. Missing future matchups display
+a dash. Baseline probabilities stream first, with after/delta cells pending.
 Baseline standings are cached in memory across proposals for the same league,
 input-data version, period and roster settings. The UI shows two rank distributions,
 expected ranks and playoff probabilities, and discards results when trade inputs

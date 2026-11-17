@@ -34,6 +34,16 @@ async function tradeProbabilityRun(body){
   }
  }catch(e){if(version===tradeProbability.version){tradeProbability.error=e.message;render();}}
 }
+function tradeCategoryProbabilityCells(team,category){
+ const current=tradeProbability.key===tradeProbabilityKey(),job=current?tradeProbability.job:null;
+ const before=(job?.result?.before??(current?tradeProbability.baseline:[])??[]).find(t=>t.team_id===+team)?.category_probabilities?.[category];
+ const after=job?.result?.after?.find(t=>t.team_id===+team)?.category_probabilities?.[category];
+ const pending=current&&!tradeProbability.error&&!['complete','failed'].includes(job?.status);
+ const show=v=>finite(v)?probabilityPercent(v):v===null||!pending?'—':'…';
+ const delta=finite(before)&&finite(after)?(after-before)*100:null;
+ const color=delta===null?'':tone(delta,10);
+ return `<td class="bf-trade-before" style="${color}">${show(before)}</td><td class="bf-trade-after" style="${color}">${show(after)}</td><td style="${color}">${delta!==null?(delta>0?'+':'')+fmt(delta,1)+' '+tr('п.п.','pp'):pending?'…':'—'}</td>`;
+}
 function tradeProbabilityPanel(){
  if(!probabilityEnabled()||tradeProbability.key!==tradeProbabilityKey())return '';
  const job=tradeProbability.job,d=job?.result;

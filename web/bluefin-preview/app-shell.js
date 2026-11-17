@@ -35,7 +35,7 @@ async function start(){
    s.rosterOpen[side]=saved.rosterOpen?.give!==false||saved.rosterOpen?.receive!==false;
    s[side+'Search']=typeof saved[side+'Search']==='string'?saved[side+'Search']:'';
   }
-  s.tradeValues=['z','ranks'].includes(saved.tradeValues)?saved.tradeValues:'raw';s.tradeSummaryOpen=saved.tradeSummaryOpen===true;
+  s.tradeValues=['z','ranks','probability'].includes(saved.tradeValues)?saved.tradeValues:'raw';s.tradeSummaryOpen=saved.tradeSummaryOpen===true;
   s.probTeam=teams.some(t=>t.team_id===+saved.probTeam)?+saved.probTeam:null;
   s.probTeamView=saved.probTeamView==='opponents'?'opponents':'schedule';
   s.probView=saved.probView==='opponents'?'opponents':'ranks';

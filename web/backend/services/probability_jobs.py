@@ -39,9 +39,10 @@ def run_probability_job(metadata, params, progress):
 
 
 class ProbabilityJobs:
-    def __init__(self, directory=None, runner=run_probability_job):
+    def __init__(self, directory=None, runner=run_probability_job, cache_revision=None):
         self.directory = Path(directory or ROOT / '.cache' / 'probabilistic')
         self.runner = runner
+        self.cache_revision = cache_revision
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='probabilistic')
         self.lock = Lock()
         self.jobs = {}
@@ -110,7 +111,7 @@ class ProbabilityJobs:
         stamp = getattr(metadata, 'last_refresh_time', None)
         source_version = stamp.isoformat() if hasattr(stamp, 'isoformat') else str(stamp or '')
         data_version = analytics_version(metadata, stochastic=True)
-        signature = digest([scope, data_version, params])
+        signature = digest([scope, data_version, params] + ([self.cache_revision] if self.cache_revision else []))
         cached = self.find(metadata, signature)
         if cached:
             self._pointer(self.directory / scope / 'latest.json', cached['job_id'])

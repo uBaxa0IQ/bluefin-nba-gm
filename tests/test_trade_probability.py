@@ -39,3 +39,16 @@ def test_invalid_trade_is_rejected(inputs, changes):
     meta, params = inputs
     with pytest.raises(ValueError):
         service.trade_snapshots(meta, {**params, **changes})
+
+
+def test_category_probabilities_average_official_matches_from_each_side():
+    def match(a, b, win, loss, official=True):
+        return dict(team1_id=a, team2_id=b, official=official,
+                    categories={'PTS': {'p_win': win, 'p_tie': 1-win-loss, 'p_loss': loss}})
+    forecast = {'categories': ['PTS'], 'standings': [{'team_id': i} for i in (1, 2, 3)],
+        'weeks': [{'matchups': [match(1, 2, .7, .2), match(1, 3, 1, 0, False)]},
+                  {'matchups': [match(2, 1, .4, .5)]}]}
+    values = {t['team_id']: t['category_probabilities']['PTS'] for t in service.category_probabilities(forecast)}
+    assert values[1] == pytest.approx(.6)
+    assert values[2] == pytest.approx(.3)
+    assert values[3] is None

@@ -151,3 +151,21 @@ def test_cached_result_available_while_other_calculation_runs(tmp_path):
     finally:
         release.set()
         store.executor.shutdown(wait=True)
+
+
+def test_changed_result_schema_uses_a_new_cache_revision(tmp_path):
+    meta = metadata()
+    original = ProbabilityJobs(tmp_path, lambda *args: {'schema': 1})
+    try:
+        a = original.submit(meta, {'trials': 3000})
+        wait_complete(original, meta, a['job_id'])
+    finally:
+        original.executor.shutdown(wait=True)
+    revised = ProbabilityJobs(tmp_path, lambda *args: {'schema': 2}, cache_revision='schema2')
+    try:
+        b = revised.submit(meta, {'trials': 3000})
+        assert b['job_id'] != a['job_id']
+        assert wait_complete(revised, meta, b['job_id'])['result']['schema'] == 2
+        assert revised.submit(meta, {'trials': 3000})['job_id'] == b['job_id']
+    finally:
+        revised.executor.shutdown(wait=True)

@@ -108,7 +108,7 @@ function tradePage(){
   <div class="bf-trade-builder">${side(s.tradeMyTeam,'give')}${side(s.tradeTeam,'receive')}</div>
   <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!s.give.length||!s.receive.length)}</div>
   ${s.tradeError?`<div class="pe-error" role="alert">${E(s.tradeError)}</div>`:''}
-  ${s.trade?`<div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')]],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}`:''}`;
+  ${s.trade?`<div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')],...(probabilityEnabled()?[['probability',tr('Вероятности','Probabilities')]]:[])],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}`:''}`;
 }
 function tradeRank(rank){
  if(!Number.isInteger(rank)||rank<1)return '';
@@ -124,6 +124,7 @@ function tradeResult(d){
  const keys=['my_team','their_team'],groups=keys.map(k=>d[k]),rawValues=s.tradeValues==='raw',rankValues=s.tradeValues==='ranks';
  const block=(key,t)=>`<section><h2>${E(t.name)}</h2><div class="bf-trade-metrics"><div><span>${punts().length?'Z стратегии':'Σ Z'}</span><strong>${fmt(t.before_z)} → ${fmt(t.after_z)}</strong><small style="${tone(t.delta)}">${t.delta>0?'+':''}${fmt(t.delta)}</small></div>${[['z_scores','Место по Z'],['team_stats_avg','Место по средним'],['calendar','Прогноз места']].map(([kind,l])=>{const r=d.simulation_ranks?.[kind]?.[key];return `<div><span>${l}</span><strong>${r?.before??'—'} → ${r?.after??'—'}</strong>${r&&r.before!==r.after?`<small style="${tone((r.before-r.after)*1.5)}">${r.before>r.after?'↑':'↓'}${Math.abs(r.before-r.after)}</small>`:''}</div>`;}).join('')}</div></section>`;
  const rows=cats.filter(c=>!punts().includes(c)).map(c=>`<tr><td>${E(c)}</td>${groups.map((t,i)=>{
+  if(s.tradeValues==='probability')return tradeCategoryProbabilityCells(i===0?s.tradeMyTeam:s.tradeTeam,c);
   const v=(rawValues?t.raw_categories:t.categories)?.[c],rank=d.category_rankings?.[keys[i]]?.[c];
   if(rankValues){const color=tone(Number.isInteger(rank?.before)&&Number.isInteger(rank?.after)?rank.before-rank.after:NaN);return `<td style="${color}">${rank?.before??'—'}</td><td style="${color}">${rank?.after??'—'}</td><td style="${color}">${tradeRankChange(rank)||'—'}</td>`;}
   if(!v)return '<td>—</td><td>—</td><td>—</td>';

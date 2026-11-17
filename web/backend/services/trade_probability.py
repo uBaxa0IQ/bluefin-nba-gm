@@ -16,6 +16,21 @@ from core.analytics_cache import analytics_version
 _before_cache = {}
 
 
+def category_probabilities(forecast):
+    """Average category win chance against each team's remaining official opponents."""
+    samples = {t['team_id']: {cat: [] for cat in forecast['categories']} for t in forecast['standings']}
+    for week in forecast['weeks']:
+        for match in week['matchups']:
+            if not match['official']:
+                continue
+            for cat, odds in match['categories'].items():
+                samples[match['team1_id']][cat].append(odds['p_win'])
+                samples[match['team2_id']][cat].append(odds['p_loss'])
+    return [{**team, 'category_probabilities': {
+        cat: sum(values) / len(values) if values else None
+        for cat, values in samples[team['team_id']].items()}} for team in forecast['standings']]
+
+
 def trade_snapshots(metadata, params):
     snapshot = build_league_snapshot(metadata, params['period'])
     a, b = params['my_team_id'], params['their_team_id']
@@ -55,9 +70,10 @@ def run_trade_probability(metadata, params, progress):
         progress=lambda done, total: progress('histories', done, total))
     ids = {params['my_team_id'], params['their_team_id']}
     result = {'trials': 3000, 'before': None, 'after': None}
-    # Baseline is shared across trade proposals, but never across data refreshes.
+    # Share baseline category probabilities and standings across trade proposals.
     cache_key = hashlib.sha256(json.dumps([metadata.league_id, metadata.year,
-        analytics_version(metadata, stochastic=True), common, params['custom_rosters']], sort_keys=True).encode()).hexdigest()
+        analytics_version(metadata, stochastic=True), common, params['custom_rosters'],
+        params.get('seed', 20261116)], sort_keys=True).encode()).hexdigest()
     for label, prepared in (('before', before), ('after', after)):
         progress(label, 0, 3000, dict(result))
         standings = _before_cache.get(cache_key) if label == 'before' else None
@@ -65,9 +81,9 @@ def run_trade_probability(metadata, params, progress):
             forecast = simulate_seasons(prepared['teams'], prepared['weeks'], distributions,
                 categories=prepared['categories'], reverse_categories=prepared['reverse_categories'],
                 historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
-                matchup_tie_category=prepared.get('matchup_tie_category'), trials=3000, seed=20261116,
+                matchup_tie_category=prepared.get('matchup_tie_category'), trials=3000, seed=params.get('seed', 20261116),
                 all_opponents=False, paired_draws=True)
-            standings = forecast['standings']
+            standings = category_probabilities(forecast)
             if label == 'before':
                 _before_cache[cache_key] = standings
                 if len(_before_cache) > 4:
@@ -77,4 +93,5 @@ def run_trade_probability(metadata, params, progress):
     return result
 
 
-trade_probability_jobs = ProbabilityJobs(ROOT / '.cache' / 'trade_probability', runner=run_trade_probability)
+trade_probability_jobs = ProbabilityJobs(ROOT / '.cache' / 'trade_probability', runner=run_trade_probability,
+                                       cache_revision='category-probabilities-v1')
