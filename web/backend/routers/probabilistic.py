@@ -9,6 +9,7 @@ from core.config import DEFAULT_PERIOD, PERIODS, normalize_period
 from core import feature_flags
 from services.probability_jobs import probability_jobs
 from services.trade_probability import trade_probability_jobs, trade_snapshots
+from services.roster_contribution import contribution_jobs
 
 router = APIRouter(prefix='/api/probabilistic', tags=['probabilistic'])
 
@@ -44,6 +45,34 @@ class TradeProbabilityRequest(ProbabilityRequest):
     i_give: list[str] = Field(min_length=1, max_length=30)
     i_receive: list[str] = Field(min_length=1, max_length=30)
     trials: Literal[3000] = 3000
+
+
+class ContributionRequest(ProbabilityRequest):
+    team_id: int
+    trials: Literal[3000] = 3000
+
+
+@router.post('/contribution/jobs')
+def start_contribution(body: ContributionRequest, metadata=Depends(get_league_meta)):
+    if not feature_flags.PROBABILISTIC_ENABLED:
+        raise HTTPException(503, 'Вероятностный режим временно отключён')
+    ids = {team.team_id for team in metadata.get_teams()}
+    if body.team_id not in ids or set(body.custom_rosters) - ids:
+        raise HTTPException(422, 'Неизвестная команда')
+    if set(body.punt_categories) - set(metadata.get_categories()):
+        raise HTTPException(422, 'Неизвестные пант-категории')
+    try:
+        return contribution_jobs.submit(metadata, body.model_dump())
+    except RuntimeError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@router.get('/contribution/jobs/{job_id}')
+def get_contribution(job_id: str, metadata=Depends(get_league_meta)):
+    job = contribution_jobs.get(metadata, job_id)
+    if not job:
+        raise HTTPException(404, 'Расчёт не найден')
+    return job
 
 
 @router.post('/trade/jobs')

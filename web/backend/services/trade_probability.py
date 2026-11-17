@@ -11,6 +11,7 @@ from core.monte_carlo import simulate_seasons
 from .monte_carlo import prepare_season
 from .game_history import build_distributions
 from .probability_jobs import ProbabilityJobs, ROOT
+from core.analytics_cache import analytics_version
 
 _before_cache = {}
 
@@ -56,7 +57,7 @@ def run_trade_probability(metadata, params, progress):
     result = {'trials': 3000, 'before': None, 'after': None}
     # Baseline is shared across trade proposals, but never across data refreshes.
     cache_key = hashlib.sha256(json.dumps([metadata.league_id, metadata.year,
-        str(getattr(metadata, 'last_refresh_time', '')), common, params['custom_rosters']], sort_keys=True).encode()).hexdigest()
+        analytics_version(metadata, stochastic=True), common, params['custom_rosters']], sort_keys=True).encode()).hexdigest()
     for label, prepared in (('before', before), ('after', after)):
         progress(label, 0, 3000, dict(result))
         standings = _before_cache.get(cache_key) if label == 'before' else None

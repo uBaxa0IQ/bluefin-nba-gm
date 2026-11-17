@@ -66,11 +66,33 @@ def test_trade_job_is_scoped_separately_and_fixed_to_3000(client, monkeypatch, t
         assert started.status_code == 200
         job_id = started.json()['job_id']
         jobs.executor.shutdown(wait=True)
+
         job = client.get('/api/probabilistic/trade/jobs/' + job_id).json()
         assert job['status'] == 'complete'
         assert job['result']['trials'] == 3000
         assert client.get('/api/probabilistic/jobs/' + job_id).status_code == 404
         assert client.get('/api/probabilistic/trade/jobs/' + '0' * 32).status_code == 404
+    finally:
+        jobs.executor.shutdown(wait=True)
+
+
+def test_contribution_validates_team_and_uses_separate_job_scope(client, monkeypatch, tmp_path):
+    router = importlib.import_module('routers.probabilistic')
+    jobs = ProbabilityJobs(tmp_path / 'contribution', lambda meta, params, progress: {'team_id': params['team_id'], 'players': []})
+    monkeypatch.setattr(router, 'contribution_jobs', jobs)
+    try:
+        for body in ({'team_id': 99}, {'team_id': 1, 'trials': 10000},
+                     {'team_id': 1, 'custom_rosters': {'99': ['A']}},
+                     {'team_id': 1, 'punt_categories': ['UNKNOWN']}):
+            assert client.post('/api/probabilistic/contribution/jobs', json=body).status_code == 422
+        started = client.post('/api/probabilistic/contribution/jobs', json={'team_id': 1})
+        assert started.status_code == 200
+        job_id = started.json()['job_id']
+        jobs.executor.shutdown(wait=True)
+        job = client.get('/api/probabilistic/contribution/jobs/' + job_id).json()
+        assert job['status'] == 'complete'
+        assert job['result']['team_id'] == 1
+        assert client.get('/api/probabilistic/jobs/' + job_id).status_code == 404
     finally:
         jobs.executor.shutdown(wait=True)
 

@@ -6,6 +6,7 @@ from dependencies import get_league_meta, refresh_cached_league
 from core.z_score import calculate_z_scores
 from core.config import DEFAULT_PERIOD
 from core.matchup_availability import latest_stats_week
+from core.analytics_cache import analytics_version
 import math
 
 router = APIRouter(prefix="/api", tags=["teams"])
@@ -83,6 +84,7 @@ def get_refresh_status(league_meta=Depends(get_league_meta)):
     last_refresh = league_meta.get_last_refresh_time()
     return {
         "last_refresh_time": last_refresh.isoformat() if last_refresh else None,
+        "data_version": analytics_version(league_meta, stochastic=True),
         "auto_refresh_enabled": True,
         "refresh_interval_minutes": 5,
         "stale": bool(getattr(league_meta, 'last_refresh_error', None)),

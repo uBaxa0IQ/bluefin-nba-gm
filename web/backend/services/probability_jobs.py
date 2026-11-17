@@ -2,7 +2,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import copy
 from datetime import datetime, timezone
-import hashlib
 import json
 import logging
 from pathlib import Path
@@ -10,6 +9,7 @@ from threading import Lock
 from uuid import uuid4
 
 from core.monte_carlo import simulate_seasons
+from core.analytics_cache import analytics_version, digest
 from .game_history import build_distributions
 from .monte_carlo import prepare_season
 
@@ -61,6 +61,20 @@ class ProbabilityJobs:
         temp.write_text(json.dumps(job, ensure_ascii=False, allow_nan=False), encoding='utf-8')
         temp.replace(path)
 
+    def _pointer(self, path, job_id):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(path.name + '.' + uuid4().hex + '.tmp')
+        temp.write_text(json.dumps({'job_id': job_id}), encoding='utf-8')
+        temp.replace(path)
+
+    def find(self, metadata, signature):
+        pointer = self.directory / self.scope(metadata) / 'by_signature' / f'{signature}.json'
+        try:
+            job = self.get(metadata, json.loads(pointer.read_text(encoding='utf-8'))['job_id'])
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return job if job and job['status'] == 'complete' and job['signature'] == signature else None
+
     def _read(self, scope, job_id):
         if len(job_id) != 32 or any(c not in '0123456789abcdef' for c in job_id):
             return None
@@ -95,22 +109,25 @@ class ProbabilityJobs:
         scope = self.scope(metadata)
         stamp = getattr(metadata, 'last_refresh_time', None)
         source_version = stamp.isoformat() if hasattr(stamp, 'isoformat') else str(stamp or '')
-        signature = hashlib.sha256(json.dumps([scope, source_version, params], sort_keys=True).encode()).hexdigest()
+        data_version = analytics_version(metadata, stochastic=True)
+        signature = digest([scope, data_version, params])
+        cached = self.find(metadata, signature)
+        if cached:
+            self._pointer(self.directory / scope / 'latest.json', cached['job_id'])
+            return cached
         with self.lock:
-            if self.active:
-                existing = self.jobs[self.active]
-                if existing['signature'] == signature:
+            for existing in self.jobs.values():
+                if existing['signature'] == signature and existing['status'] == 'complete':
+                    self._pointer(self.directory / scope / 'latest.json', existing['job_id'])
                     return dict(existing)
-                raise RuntimeError('Другой расчёт уже выполняется. Дождитесь его завершения.')
-        latest = self.latest(metadata)
-        if latest and latest['signature'] == signature and latest['status'] == 'complete':
-            return latest
-        with self.lock:
             if self.active:
+                if self.jobs[self.active]['signature'] == signature:
+                    return dict(self.jobs[self.active])
                 raise RuntimeError('Другой расчёт уже выполняется. Дождитесь его завершения.')
             job_id = uuid4().hex
             job = {'job_id': job_id, 'scope': scope, 'signature': signature, 'params': params,
-                   'source_version': source_version, 'created_at': datetime.now(timezone.utc).isoformat(),
+                   'source_version': source_version, 'data_version': data_version,
+                   'created_at': datetime.now(timezone.utc).isoformat(),
                    'status': 'running', 'stage': 'calendar', 'done': 0, 'total': 0}
             self.jobs[job_id] = job
             self.active = job_id
@@ -131,10 +148,8 @@ class ProbabilityJobs:
                 job.update(status='complete', stage='complete', result=result,
                            finished_at=datetime.now(timezone.utc).isoformat())
                 self._write(job)
-                pointer = self.directory / job['scope'] / 'latest.json'
-                temp = pointer.with_suffix('.tmp')
-                temp.write_text(json.dumps({'job_id': job_id}), encoding='utf-8')
-                temp.replace(pointer)
+                self._pointer(self.directory / job['scope'] / 'latest.json', job_id)
+                self._pointer(self.directory / job['scope'] / 'by_signature' / f"{job['signature']}.json", job_id)
         except Exception as error:
             logger.exception('Probabilistic job failed')
             message = 'Не удалось выполнить расчёт. Попробуйте ещё раз.'

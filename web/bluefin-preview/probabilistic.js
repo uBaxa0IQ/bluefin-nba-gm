@@ -1,7 +1,7 @@
 'use strict';
 
 const probabilityStateKeys=['probTeam','probTeamView','probWeek','probOpponent','probView','probMatrixWeek','probRosterTeam','simMode'];
-Object.assign(s,{probTeam:null,probTeamView:'schedule',probWeek:null,probOpponent:null,probView:'ranks',probMatrixWeek:null,probRosterTeam:null});
+Object.assign(s,{categoryMode:'averages',probTeam:null,probTeamView:'schedule',probWeek:null,probOpponent:null,probView:'ranks',probMatrixWeek:null,probRosterTeam:null});
 const probability={restored:false,restoring:false,job:null,result:null,params:null,resultVersion:null,busy:false,error:'',timer:null,expanded:null,autoTimer:null,refreshTimer:null,lastAttempt:null,autoKey:null};
 const probabilityPercent=p=>finite(p)?fmt(p*100,1)+'%':'—';
 const probabilityJobKey=()=>`bluefin-probabilistic-job:${settings.season.league_id}:${settings.season.year}`;
@@ -72,7 +72,7 @@ function probabilityAccept(job){
  probability.busy=job.status==='running';
  if(job.status==='complete'&&probabilityMatchesCurrent(job.params)){
   probability.result=job.result;probability.params=job.params;probability.error='';
-  probability.resultVersion=job.source_version;
+  probability.resultVersion=job.source_version;probability.resultDataVersion=job.data_version;
   if(!job.result.standings.some(t=>t.team_id===+s.probTeam))s.probTeam=null;
  }
  if(job.status==='failed')probability.error=job.message||tr('Не удалось выполнить расчёт','Calculation failed');
@@ -122,9 +122,9 @@ function probabilityAuto(){
  const refresh=resource('/api/refresh-status',60000);
  if(refresh.pending)return;
  const params=probabilityParams(),key=probabilitySettingsKey(params);
- const stamp=refresh.data?.last_refresh_time||'';
+ const stamp=refresh.data?.data_version??refresh.data?.last_refresh_time??'';
  const stale=!probability.result||!probability.params||probabilitySettingsKey(probability.params)!==key||
-  (stamp&&Date.parse(stamp)>Date.parse(probability.resultVersion||probability.result.metadata.as_of));
+  (refresh.data?.data_version?probability.resultDataVersion!==stamp:(stamp&&Date.parse(stamp)>Date.parse(probability.resultVersion||probability.result.metadata.as_of)));
  const attempt=key+'|'+stamp;
  if(!stale||probability.lastAttempt===attempt)return;
  if(probability.autoTimer&&probability.autoKey===attempt)return;
@@ -213,15 +213,50 @@ function probabilityRosterDialog(){
  const names=d.metadata.rosters?.[team.team_id];
  return `<div class="pe-section-head"><select class="pe-select" data-control="probRosterTeam" aria-label="${tr('Команда в расчёте','Team in calculation')}">${available.map(t=>`<option value="${t.team_id}" ${t===team?'selected':''}>${E(t.team_name)}</option>`).join('')}</select>${names?`<span class="pe-muted">${names.length}</span>`:''}</div>${names?`<ul class="bf-prob-roster-list" aria-label="${tr('Игроки в расчёте','Players in calculation')}">${names.map(name=>`<li>${E(name)}</li>`).join('')}</ul>`:blank(tr('Состав этого расчёта недоступен','The roster for this calculation is unavailable'))}`;
 }
-function probabilisticPage(){
+function teamCategories(team){
+ const controls=`<div class="pe-controls pe-row">${segment([['averages',tr('Средние','Averages')],['probability',tr('Вероятности','Probabilities')]],'categoryMode')}</div>`;
+ if(s.categoryMode!=='probability')return controls+categoryTable(team);
+ if(!probabilityEnabled())return controls+blank(tr('Вероятностный режим недоступен','Probabilistic mode unavailable'));
+ const d=probabilityMaintain();
+ const error=probability.error?`<div class="pe-error" role="alert">${E(probability.error)} <button class="pe-link" data-action="${probability.job?.status==='failed'?'prob-run':'prob-restore'}">${tr('Повторить','Retry')}</button></div>`:'';
+ if(!d)return controls+error+(probability.error?'':`<div class="bf-prob-loading" role="status">…</div>`);
+ const plans=[...d.weeks].sort((a,b)=>a.week-b.week).map(w=>{
+  const match=w.matchups.find(m=>m.official&&[m.team1_id,m.team2_id].includes(team));
+  return {week:w.week,match:match?probabilityViewMatch(match,team):null};
+ });
+ if(!plans.length)return controls+error+blank(tr('Нет оставшихся матчей','No remaining matchups'));
+ const mean=values=>values.length?sum(values,x=>x)/values.length:null;
+ const name=id=>d.standings.find(t=>t.team_id===id)?.team_name??tname(id);
+ const rows=cats.map(cat=>{
+  const values=plans.map(w=>w.match?.categories[cat]?.p_win).filter(finite),average=mean(values);
+  return `<tr class="${punts().includes(cat)?'bf-punted':''}"><th scope="row">${E(cat)}</th>${plans.map(({week,match})=>{
+   const p=match?.categories[cat]?.p_win;
+   if(!finite(p))return '<td>—</td>';
+   const label=`${cat} · ${tr('Неделя','Week')} ${week} · ${name(match.team2_id)}: ${probabilityPercent(p)}`;
+   return `<td style="${tone((p-.5)*6)}"><button class="bf-prob-cell" data-action="prob-pair" data-opponent="${match.team2_id}" data-team="${team}" data-week="${week}" title="${E(label)}" aria-label="${E(label)}">${probabilityPercent(p)}</button></td>`;
+  }).join('')}<td class="bf-category-prob-average" style="${finite(average)?tone((average-.5)*6):''}">${probabilityPercent(average)}</td></tr>`;
+ }).join('');
+ const expected=plans.map(({match})=>match?sum(cats,c=>match.categories[c]?.p_win??0):null);
+ const footer=(label,values,show,scale)=>{const average=mean(values.filter(finite));return `<tr><th scope="row">${label}</th>${values.map((v,i)=>{
+  const {week,match}=plans[i];
+  const caption=`${label} · ${tr('Неделя','Week')} ${week} · ${match?name(match.team2_id):''}`;
+  return `<td style="${finite(v)?tone(scale(v)):''}">${finite(v)&&match?`<button class="bf-prob-cell" data-action="prob-pair" data-team="${team}" data-opponent="${match.team2_id}" data-week="${week}" title="${E(caption)}" aria-label="${E(caption)}">${show(v)}</button>`:'—'}</td>`;
+ }).join('')}<td class="bf-category-prob-average" style="${finite(average)?tone(scale(average)):''}">${show(average)}</td></tr>`;};
+ return controls+error+`<div class="pe-table-wrap"><table class="bf-prob-opponents bf-category-probabilities" style="--prob-width:${170+plans.length*96+110}px" aria-label="${tr('Вероятности победы по категориям','Category win probabilities')}"><colgroup><col style="width:170px">${plans.map(()=>'<col style="width:96px">').join('')}<col style="width:110px"></colgroup><thead><tr><th>${tr('Категория','Category')}</th>${plans.map(w=>`<th scope="col" title="${w.match?E(name(w.match.team2_id)):''}">${tr('Неделя','Week')} ${w.week}</th>`).join('')}<th scope="col">${tr('Среднее','Average')}</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer(tr('Ожид. категорий','Expected categories'),expected,v=>fmt(v,1),v=>(v/cats.length-.5)*6)}${footer(tr('Победа в матчапе','Matchup win'),plans.map(w=>w.match?.p_win),probabilityPercent,v=>(v-.5)*6)}</tfoot></table></div>`;
+}
+function probabilityMaintain(){
  const currentResult=probabilityCurrentResult();
  if(!currentResult&&['prob-match','prob-rosters'].includes(s.overlay))s.overlay=null;
  if(!probability.restored)void probabilityRestore();
  probabilityAuto();
  if(!probability.refreshTimer)probability.refreshTimer=setTimeout(()=>{
   probability.refreshTimer=null;
-  if(s.page==='simulations'&&s.simMode==='probabilistic'){cache.delete('/api/refresh-status');render();}
+  if(s.page==='simulations'&&s.simMode==='probabilistic'||s.page==='team'&&s.tab==='categories'&&s.categoryMode==='probability'){cache.delete('/api/refresh-status');render();}
  },60000);
+ return currentResult;
+}
+function probabilisticPage(){
+ const currentResult=probabilityMaintain();
  return `${probability.error?`<div class="pe-error" role="alert">${E(probability.error)} <button class="pe-link" data-action="${probability.job?.status==='failed'?'prob-run':'prob-restore'}">${tr('Повторить','Retry')}</button></div>`:''}
   <div aria-busy="${probability.busy||probability.restoring}">${currentResult?probabilityResults(currentResult):!probability.error?`<div class="bf-prob-loading" role="status" aria-label="${tr('Загрузка прогноза','Loading forecast')}">…</div>`:''}</div>`;
 }

@@ -18,6 +18,7 @@ from fastapi import Request as FastAPIRequest
 from models import TradeAnalysisRequest
 from core.trade_roster import selected_roster_after_trade
 from core.z_score import calculate_z_scores
+from core.analytics_cache import analytics_version, digest
 import math
 
 router = APIRouter(prefix='/api/bluefin', tags=['bluefin'])
@@ -25,15 +26,17 @@ _cache, _lock, _pool = {}, Lock(), ThreadPoolExecutor(max_workers=4)
 
 
 def season_result(meta, period, mode, count, custom_rosters, punts):
-    key = ('season', period, mode, count, str(getattr(meta, 'last_refresh_time', '')),
+    key = ('season', period, mode, count, analytics_version(meta),
            tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts))
     with _lock:
         hit = _cache.get(key)
-        if hit and monotonic() - hit[0] < 300:
+        if hit:
             return hit[1]
     result = project_regular_season(meta, period, simulation_mode=mode, top_n_players=count,
                                     custom_rosters=custom_rosters, punt_categories=punts, record_forecasts=False)
     with _lock:
+        if len(_cache) >= 128:
+            _cache.clear()
         _cache[key] = (monotonic(), result)
     return result
 
@@ -56,6 +59,11 @@ def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_p
 
 @router.post('/trade')
 def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends(get_league_meta)):
+    key = ('trade', analytics_version(meta), digest(body.model_dump()))
+    with _lock:
+        hit = _cache.get(key)
+        if hit:
+            return hit[1]
     from routers.trades import analyze_trade
     result = analyze_trade(body, http_request, meta)
     custom = body.custom_team_players or {}
@@ -80,6 +88,10 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
     after_places = {t['team_id']: t['projected_position'] for t in after['standings']}
     result['simulation_ranks']['calendar'] = {key: {'before': before_places[team_id], 'after': after_places[team_id]}
         for key, team_id in (('my_team', body.my_team_id), ('their_team', body.their_team_id))}
+    with _lock:
+        if len(_cache) >= 128:
+            _cache.clear()
+        _cache[key] = (monotonic(), result)
     return result
 
 

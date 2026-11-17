@@ -147,13 +147,47 @@ players and carrying manual selections through the trade.
 
 The running job publishes the baseline before calculating the after-trade result.
 Baseline standings are cached in memory across proposals for the same league,
-refresh version, period and roster settings. The UI shows two rank distributions,
+input-data version, period and roster settings. The UI shows two rank distributions,
 expected ranks and playoff probabilities, and discards results when trade inputs
 change. Errors in this forecast do not prevent the regular trade analysis.
 The trial count is fixed server-side; worst-case sampling error is approximately
 ±1.8 percentage points at 95%, separate from model uncertainty.
 
 ## Validation
+
+### Roster contribution
+
+The team tab `Вклад состава` runs 3,000 paired trials per player via
+`POST /api/probabilistic/contribution/jobs` and polls the returned job ID.
+Each counterfactual removes only that player's remaining scheduled starts;
+other starters and already credited totals are held fixed. There is no
+replacement player or automatic bench promotion. Players outside the selected
+lineups have zero future contribution under these assumptions.
+
+Category cells show the average change in category win probability across
+remaining official matchups (with player minus without, percentage points).
+Expected wins sum the matchup win probability changes. Playoff contribution
+is the probability difference; rank contribution is expected rank without minus
+with. Positive values indicate benefit from keeping the player. These are
+individual counterfactual effects, not additive shares of team strength.
+Rows stream as they finish; settings changes invalidate the displayed result.
+
+Punts in this table are presentation-only: column headers and values use the
+existing muted `bf-punted` style. They do not change the contribution request,
+automatic roster selection, or the probabilities.
+
+### Cache keys
+
+Probability jobs (season, trade, contribution) index completed disk results by
+league, season, parameters and a content-based data version. Returning to an older
+parameter combination reuses it, including after process restart and while a
+different job runs. The data version includes player statistics, roster ownership,
+positions, schedules, records, credited matchup scores, league rules and weighted
+coefficients. Passing a scheduled tip-off invalidates future-only forecasts.
+Unchanged ESPN refreshes leave this version stable. Probability caches also have
+a six-hour freshness boundary matching the game-log cache policy. Calendar season
+and ordinary trade responses use the same content version in bounded memory caches.
+Increment `core.analytics_cache.CACHE_REVISION` when changing calculation semantics.
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests/test_monte_carlo.py tests/test_calendar_selected_roster.py tests/test_projection.py tests/test_simulation.py -q

@@ -1,5 +1,19 @@
 
 html{scrollbar-gutter:stable}
+#paper-exploration .bf-category-probabilities .bf-category-prob-average{border-left:1px solid var(--pe-line);font-weight:500}
+#paper-exploration .bf-category-probabilities tfoot{border-top:1px solid var(--pe-line)}
+#paper-exploration .bf-category-probabilities tfoot td{padding:16px 8px;color:var(--pe-muted)}
+#paper-exploration .bf-category-probabilities tfoot th{font-weight:400;color:var(--pe-muted)}
+#paper-exploration .bf-contribution-table{width:max(100%,var(--contribution-width));min-width:var(--contribution-width)!important}
+#paper-exploration .bf-contribution-table td,#paper-exploration .bf-contribution-table thead th{text-align:center}
+#paper-exploration .bf-contribution-table th:first-child{width:210px;position:sticky;left:0;background:var(--pe-bg);text-align:left;z-index:1}
+#paper-exploration .bf-contribution-table .bf-prob-team{padding:4px 0;text-align:left}
+#paper-exploration .bf-contribution-table .bf-prob-team:disabled{cursor:default;opacity:.55}
+#paper-exploration .bf-contribution-selected th:first-child{color:var(--pe-blue)}
+#paper-exploration .bf-contribution-detail{border-top:1px solid var(--pe-line);padding-top:24px;margin-top:32px}
+#paper-exploration .bf-contribution-detail .bf-contribution-metrics{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:24px}
+#paper-exploration .bf-contribution-weeks th:nth-child(2),#paper-exploration .bf-contribution-weeks td:nth-child(2){text-align:left}
+@media(max-width:600px){#paper-exploration .bf-contribution-detail .bf-contribution-metrics{grid-template-columns:1fr;gap:4px}}
 .bf-trade-prob{margin-top:36px;border-top:1px solid var(--pe-line);padding-top:28px}
 .bf-trade-prob-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px}
 .bf-trade-prob-grid svg{width:100%;height:auto;overflow:visible}
@@ -255,3 +269,18 @@ body.bf-modal-open{overflow:hidden}
  #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid){grid-template-columns:minmax(0,1fr);row-gap:22px}
  #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section{grid-row:auto;display:block}
 }
+
+#paper-exploration .pe-dialog .bf-contribution-detail{border:0;margin:0;padding:0}
+
+#paper-exploration .bf-settings{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:32px;align-items:start}
+#paper-exploration .bf-settings>section{min-width:0}
+#paper-exploration .bf-settings-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 16px;margin-bottom:24px}
+#paper-exploration .bf-settings .bf-field{gap:8px;margin-bottom:20px;min-width:0}
+#paper-exploration .bf-settings-fields .bf-field{margin:0}
+#paper-exploration .bf-settings .bf-field select{min-width:0;max-width:100%;text-overflow:ellipsis}
+#paper-exploration .bf-settings-players{max-height:min(470px,52vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:8px}
+#paper-exploration .bf-settings-roster>button{margin-top:16px}
+@media(max-width:700px){#paper-exploration .bf-settings{grid-template-columns:minmax(0,1fr);gap:28px}}
+@media(max-width:420px){#paper-exploration .bf-settings-fields{grid-template-columns:minmax(0,1fr);gap:16px}}
+
+#paper-exploration .bf-category-probabilities tfoot td:has(.bf-prob-cell){padding:0}

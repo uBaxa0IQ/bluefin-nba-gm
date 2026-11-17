@@ -14,6 +14,7 @@ from .config import CATEGORIES, DEFAULT_CATEGORIES, PERIODS, REVERSE_CATEGORIES,
 from .projected_dd import estimate_projected_double_doubles, normalize_projected_stats, previous_season_stats, raw_average
 from .simulation import compare_category_stats
 from .espn_transport import BoundedEspnRequests
+from .analytics_cache import capture_league_inputs
 
 
 CATEGORY_DISPLAY_ORDER = [
@@ -64,6 +65,7 @@ class LeagueMetadata:
     def _configure_scoring(self):
         """Read the active category set from ESPN and update shared config."""
         raw = self.league.espn_request.get_league()
+        capture_league_inputs(self, raw)
         scoring = raw.get('settings', {}).get('scoringSettings', {})
         self.scoring_type = scoring.get('scoringType')
         self.category_mode_supported = self.scoring_type in {

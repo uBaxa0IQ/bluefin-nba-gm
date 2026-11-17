@@ -104,3 +104,50 @@ def test_interrupted_job_does_not_poll_forever_after_restart(tmp_path):
         release.set()
         original.executor.shutdown(wait=True)
         restarted.executor.shutdown(wait=True)
+
+
+def test_cached_a_b_a_survives_restart_and_unchanged_refresh(tmp_path):
+    meta = metadata()
+    meta.analytics_data_version = 'same-inputs'
+    calls = []
+    def runner(meta, params, progress):
+        calls.append(params)
+        return params
+    store = ProbabilityJobs(tmp_path, runner)
+    try:
+        a = store.submit(meta, {'trials': 3000})
+        wait_complete(store, meta, a['job_id'])
+        b = store.submit(meta, {'trials': 10000})
+        wait_complete(store, meta, b['job_id'])
+    finally:
+        store.executor.shutdown(wait=True)
+    restarted = ProbabilityJobs(tmp_path, runner)
+    try:
+        meta.last_refresh_time = datetime(2026, 11, 17, tzinfo=timezone.utc)
+        assert restarted.submit(meta, {'trials': 3000})['job_id'] == a['job_id']
+        assert len(calls) == 2
+        meta.analytics_data_version = 'new-player-statistics'
+        changed = restarted.submit(meta, {'trials': 3000})
+        assert changed['job_id'] != a['job_id']
+        assert wait_complete(restarted, meta, changed['job_id'])['status'] == 'complete'
+        assert len(calls) == 3
+    finally:
+        restarted.executor.shutdown(wait=True)
+
+
+def test_cached_result_available_while_other_calculation_runs(tmp_path):
+    release = Event()
+    def runner(meta, params, progress):
+        if params['trials'] == 10000:
+            assert release.wait(3)
+        return params
+    store = ProbabilityJobs(tmp_path, runner)
+    try:
+        meta = metadata()
+        a = store.submit(meta, {'trials': 3000})
+        wait_complete(store, meta, a['job_id'])
+        store.submit(meta, {'trials': 10000})
+        assert store.submit(meta, {'trials': 3000})['job_id'] == a['job_id']
+    finally:
+        release.set()
+        store.executor.shutdown(wait=True)

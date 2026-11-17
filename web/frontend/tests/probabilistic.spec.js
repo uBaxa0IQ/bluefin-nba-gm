@@ -131,6 +131,90 @@ test('calculation rosters show the archived players rather than the current brow
     expect(calls).toHaveLength(1);
 });
 
+test('team category probabilities reuse the season result, orient odds and show category details', async ({ page }) => {
+    const calls = await setup(page);
+    await page.route('**/api/bluefin/season?*', route => route.fulfill({ json: { standings: [] } }));
+    await page.locator('nav [data-page="team"]').click();
+    await page.locator('[data-set="tab"][data-value="categories"]').click();
+    await expect(page.locator('[data-set="categoryMode"]')).toHaveCount(2);
+    await page.locator('[data-set="categoryMode"][data-value="probability"]').click();
+    const matrix = page.locator('.bf-category-probabilities');
+    await expect(matrix.locator('tbody tr').first().locator('td')).toHaveText(['80.0%', '50.0%', '—', '65.0%']);
+    await expect(matrix.locator('tbody tr').nth(1).locator('td')).toHaveText(['50.0%', '—', '—', '50.0%']);
+    await matrix.locator('tbody [data-action="prob-pair"]').first().click();
+    await expect(page.getByRole('dialog', { name: 'Матчап · неделя 5' })).toBeVisible();
+    await expect(page.locator('.bf-prob-categories tbody tr')).toHaveCount(2);
+    await expect(page.locator('.bf-prob-chances')).toContainText('65.0%');
+    await expect(page.locator('.bf-prob-categories')).toContainText('80.0%');
+    await page.locator('[data-action="close"]').click();
+    for (let i = 0; i < 2; i++) {
+        await matrix.locator('tfoot tr').nth(i).locator('button').first().click();
+        await expect(page.getByRole('dialog', { name: 'Матчап · неделя 5' })).toBeVisible();
+        await expect(page.locator('.bf-prob-categories tbody tr')).toHaveCount(2);
+        await page.locator('[data-action="close"]').click();
+    }
+    await page.locator('nav [data-page="league"]').click();
+    await page.locator('[data-page="team"][data-id="2"]').first().click();
+    await page.locator('[data-set="tab"][data-value="categories"]').click();
+    await expect(matrix.locator('tbody tr').first().locator('td')).toHaveText(['20.0%', '40.0%', '—', '30.0%']);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: 'E:/NBAFantasyAnalytics/.cache/category-probabilities-mobile.png', fullPage: true });
+    expect(calls).toHaveLength(1);
+});
+
+test('roster contribution streams rows, opens details and drops results after a settings change', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/bluefin/season?*', route => route.fulfill({ json: { standings: [] } }));
+    const base = { ...result.standings[0], expected_record: { wins: 8, losses: 4, ties: 0 } };
+    const row = { player_id: 11, name: 'Player A', games: 30, category_deltas: { PTS: .12, REB: -.03 },
+        win_delta: 1.25, playoff_delta: .15, rank_delta: 1.1,
+        without: { ...base, expected_rank: 2.4, p_playoffs: .55, expected_record: { wins: 6.75, losses: 5.25, ties: 0 } },
+        weeks: [{ week: 5, opponent_id: 2, p_win: .7, without_p_win: .4, win_delta: .3 }],
+    };
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let calls = 0;
+    await page.route('**/api/probabilistic/contribution/jobs', route => {
+        calls++;
+        expect(route.request().postDataJSON().team_id).toBe(1);
+        expect(route.request().postDataJSON().trials).toBe(3000);
+        return route.fulfill({ json: { job_id: 'c'.repeat(32), status: 'running' } });
+    });
+    await page.route('**/api/probabilistic/contribution/jobs/*', async route => {
+        await gate;
+        await route.fulfill({ json: { status: 'complete', result: { baseline: { standing: base }, players: [row] } } });
+    });
+    await page.locator('nav [data-page="team"]').click();
+    await page.locator('[data-set="tab"][data-value="contribution"]').click();
+    await expect(page.locator('button[data-action="contribution-player"]')).toBeDisabled();
+    release();
+    await expect(page.locator('.bf-contribution-table tbody')).toContainText('+12.0');
+    await expect(page.locator('.bf-contribution-table tbody')).toContainText('-3.0');
+    const beforePunts = calls;
+    await page.getByRole('button', { name: /Настройки/ }).click();
+    await page.locator('[data-punt="PTS"]').check();
+    await page.locator('[data-action="close"]').click();
+    await expect(page.locator('.bf-contribution-table thead th').nth(1)).toHaveClass('bf-punted');
+    await expect(page.locator('.bf-contribution-table tbody td').first()).toHaveClass('bf-punted');
+    await expect(page.locator('.bf-contribution-table tbody td').first()).toHaveText('+12.0');
+    expect(calls).toBe(beforePunts);
+    await page.locator('button[data-action="contribution-player"]').click();
+    await expect(page.getByRole('dialog', { name: 'Player A', exact: true })).toBeVisible();
+    await expect(page.locator('.pe-main .bf-contribution-detail')).toHaveCount(0);
+    await expect(page.locator('.bf-contribution-detail')).toContainText('Team B');
+    await expect(page.locator('.bf-contribution-weeks')).toContainText('40.0%');
+    await page.screenshot({ path: 'E:/NBAFantasyAnalytics/.cache/contribution-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator('[data-action="close"]').click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: /Настройки/ }).click();
+    await page.locator('[data-control="rosterMode"]').selectOption('all');
+    await expect.poll(() => calls).toBe(2);
+    await expect(page.locator('.bf-contribution-detail')).toHaveCount(0);
+});
+
 test('trade displays baseline first, then paired rank curves and clears stale results', async ({ page }) => {
     await setup(page);
     const team = { name: 'Team', before_z: 1, after_z: 2, delta: 1, categories: {}, raw_categories: {} };

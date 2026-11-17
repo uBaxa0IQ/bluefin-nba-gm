@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
 const directory = fileURLToPath(new URL('../bluefin-preview/', import.meta.url))
-const files = ['theme.js', 'base.css', 'style.css', 'app.js', 'app-shell.js', 'i18n.js', 'analytics.js', 'views-update.js', 'probabilistic.js', 'bootstrap.js']
+const files = ['theme.js', 'base.css', 'style.css', 'app.js', 'app-shell.js', 'i18n.js', 'analytics.js', 'views-update.js', 'probabilistic.js', 'contribution.js', 'bootstrap.js']
 
 export function bluefinAssets() {
   return {
