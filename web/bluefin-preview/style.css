@@ -200,7 +200,7 @@ body.bf-modal-open{overflow:hidden}
 #paper-exploration .bf-stat-strip>div{min-width:100px}
 #paper-exploration .bf-stat-strip span{display:block;font-size:11px;color:var(--pe-muted);margin-bottom:8px}
 #paper-exploration .bf-stat-strip strong{font:500 24px 'DM Sans',sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
-#paper-exploration .bf-analytics-charts,#paper-exploration .bf-history-charts{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:38px;margin:24px 0 30px}
+#paper-exploration .bf-analytics-charts,#paper-exploration .bf-history-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:38px;row-gap:0;margin:24px 0 30px}
 #paper-exploration .bf-analytics-charts>section,#paper-exploration .bf-history-charts>section{min-width:0}
 #paper-exploration .bf-chart{display:block;width:100%;height:auto;min-height:190px;margin:12px auto 0;overflow:visible}
 #paper-exploration .bf-chart text{font:11px Inter,system-ui,sans-serif;fill:var(--pe-muted)}
@@ -245,3 +245,13 @@ body.bf-modal-open{overflow:hidden}
 /* Top-eight boundary in the probabilistic standings and rank distribution. */
 #paper-exploration .bf-playoff-cut tbody tr:nth-child(8)>td{border-bottom:1px solid var(--pe-blue)}
 #paper-exploration .bf-playoff-cut thead th:nth-child(11),#paper-exploration .bf-playoff-cut tbody td:nth-child(11){border-right:1px solid var(--pe-blue)}
+
+/* Shared header and plot rows keep paired charts aligned, including wrapped titles. */
+#paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section{display:grid;grid-row:span 2;grid-template-rows:subgrid;min-width:0}
+#paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section>:is(h2,h3,.pe-section-head){margin:0;min-height:32px;align-content:center}
+#paper-exploration .bf-trade-prob-grid{column-gap:38px;row-gap:0}
+#paper-exploration .bf-trade-prob-grid svg{display:block;margin-top:12px}
+@media(max-width:800px){
+ #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid){grid-template-columns:minmax(0,1fr);row-gap:22px}
+ #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section{grid-row:auto;display:block}
+}
