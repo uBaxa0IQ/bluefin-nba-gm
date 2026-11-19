@@ -1,10 +1,16 @@
 """ESPN slot rules shared by seasonal and draft calculations."""
 
 from .projection import DEFAULT_LINEUP_SLOTS
+from .injuries import INJURY_MODE
 
 SLOT_NAMES = {0: 'PG', 1: 'SG', 2: 'SF', 3: 'PF', 4: 'C', 5: 'G', 6: 'F',
               7: 'SG/SF', 8: 'G/F', 9: 'PF/C', 10: 'F/C', 11: 'UT', 12: 'BE',
               13: 'IR', 14: '', 15: 'Rookie'}
+
+
+def static_roster_mode(mode):
+    """Use actual non-IR membership for undated views in the injury mode."""
+    return 'exclude_ir' if mode == INJURY_MODE else mode
 
 
 def league_slots(league_metadata, include_bench=False):
@@ -15,7 +21,7 @@ def league_slots(league_metadata, include_bench=False):
         if cached is not None:
             counts = cached
     if counts is None:
-        raw = league.espn_request.league_get(params={'view': 'mSettings'})
+        raw = getattr(league_metadata, 'league_data', None) or league.espn_request.league_get(params={'view': 'mSettings'})
         counts = raw.get('settings', {}).get('rosterSettings', {}).get('lineupSlotCounts')
         if counts is not None:
             league_metadata._active_slot_counts = counts

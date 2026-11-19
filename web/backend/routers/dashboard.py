@@ -7,6 +7,7 @@ from core.z_score import calculate_z_scores
 from core.config import CATEGORIES, DEFAULT_PERIOD, REVERSE_CATEGORIES
 from utils.calculations import calculate_team_raw_stats, select_top_n_players
 from services.game_usage import get_week_game_usage
+from core.roster_rules import static_roster_mode
 from typing import Optional, List
 import math
 
@@ -20,7 +21,7 @@ def get_dashboard(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
 ):
     """
     Получает данные для дашборда команды:
@@ -35,17 +36,13 @@ def get_dashboard(
         return {"error": "Team not found"}
     
     # Определяем exclude_ir на основе simulation_mode
-    exclude_ir = (simulation_mode == "exclude_ir")
+    exclude_ir = static_roster_mode(simulation_mode) == "exclude_ir"
     
     # Получаем ростер
     roster = league_meta.get_team_roster(team_id)
     
     # Рассчитываем Z-scores для всей лиги
-    if simulation_mode == "top_n":
-        # Для режима top_n берем всех (включая IR), чтобы потом выбрать лучших
-        data = calculate_z_scores(league_meta, period, exclude_ir=False)
-    else:
-        data = calculate_z_scores(league_meta, period, exclude_ir=exclude_ir)
+    data = calculate_z_scores(league_meta, period, exclude_ir=exclude_ir)
     
     # Фильтруем данные только для выбранной команды
     team_players = [p for p in data['players'] if p['team_id'] == team_id]
@@ -55,7 +52,7 @@ def get_dashboard(
     stats_by_name = {p['name']: p['stats'] for p in all_players_with_stats}
     
     for player in team_players:
-        player['stats'] = stats_by_name.get(player['name'], {})
+        player.setdefault('stats', stats_by_name.get(player['name'], {}))
         
     # Логика выбора игроков (Top-N или Custom)
     active_players_count = len(team_players) # Сколько всего доступно для выбора
@@ -313,7 +310,9 @@ def get_matchup_details(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
+    punt_categories: str = '',
 ):
     """
     Получает детальную информацию о матчапе команды.
@@ -406,6 +405,7 @@ def get_matchup_details(
             simulation_mode=simulation_mode, top_n_players=top_n_players,
             custom_team_id=team_id,
             custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
+            punt_team_id=punt_team_id, punt_categories=tuple(filter(None, punt_categories.split(','))),
         ),
     }
 
@@ -485,7 +485,7 @@ def get_category_rankings(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
 ):
     """
     Получает рейтинг команды по категориям на основе avg статистики.
@@ -497,16 +497,11 @@ def get_category_rankings(
         return {"error": "Team not found"}
     
     # Определяем exclude_ir на основе simulation_mode
-    exclude_ir = (simulation_mode == "exclude_ir")
+    exclude_ir = static_roster_mode(simulation_mode) == "exclude_ir"
     
     # Для режима "top_n" нужно получить всех игроков (включая IR) для правильного выбора топ-13
     # Для других режимов используем exclude_ir как обычно
-    if simulation_mode == "top_n":
-        # Получаем всех игроков (включая IR) для режима top_n
-        all_players = league_meta.get_all_players_stats(period, 'avg', exclude_ir=False)
-    else:
-        # Для других режимов используем exclude_ir
-        all_players = league_meta.get_all_players_stats(period, 'avg', exclude_ir=exclude_ir)
+    all_players = league_meta.get_all_players_stats(period, 'avg', exclude_ir=exclude_ir)
     
     if not all_players:
         return {"error": "No data found"}
@@ -777,7 +772,9 @@ def get_season_projection(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
+    punt_categories: str = '',
 ):
     """Прогнозирует итог регулярки по официальному schedule и lineup projections."""
     from services.season import project_regular_season
@@ -787,6 +784,7 @@ def get_season_projection(
         simulation_mode=simulation_mode, top_n_players=top_n_players,
         custom_team_id=team_id,
         custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
+        punt_team_id=punt_team_id, punt_categories=tuple(filter(None, punt_categories.split(','))),
     )
     target = next(
         (standing for standing in projection["standings"] if standing["team_id"] == team_id),

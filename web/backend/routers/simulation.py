@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from dependencies import get_league_meta
 from core.config import CATEGORIES, DEFAULT_PERIOD
 from core.z_score import calculate_z_scores
+from core.roster_rules import static_roster_mode
 from utils.calculations import calculate_team_category_z, calculate_team_raw_stats, select_top_n_players
 from typing import Optional, List
 import math
@@ -22,12 +23,13 @@ def get_simulation(
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
     custom_team_id: Optional[int] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
 ):
     """Получает результаты симуляции матчапов для всех команд."""
     # Получаем список всех команд
     teams = league_meta.get_teams()
     team_stats = {}
+    simulation_mode = static_roster_mode(simulation_mode)
     
     if mode == "matchup":
         # Режим по матчапам (текущий)
@@ -273,7 +275,7 @@ def get_simulation_detailed(
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
     custom_team_id: Optional[int] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
 ):
     """
     Расширенная симуляция с детальными результатами матчапов для каждой команды.
@@ -281,6 +283,7 @@ def get_simulation_detailed(
     # Получаем список всех команд
     teams = league_meta.get_teams()
     team_stats = {}
+    simulation_mode = static_roster_mode(simulation_mode)
     
     if mode == "matchup":
         # Режим по матчапам (текущий)

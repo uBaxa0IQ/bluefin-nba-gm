@@ -2,17 +2,19 @@
 from collections import Counter, defaultdict
 
 from core.monte_carlo import WeekPlan, COMPONENTS, RATIOS
-from core.projection import build_matchup_lineups, get_matchup_scoring_periods, get_remaining_scoring_periods
+from core.projection import build_matchup_lineups, get_matchup_scoring_periods, get_remaining_scoring_periods, roster_available_on
 from core.snapshot import build_league_snapshot
 from core.simulation import compare_category_stats
-from .projections import select_projection_roster
+from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
 
 
 def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=13,
-                   custom_rosters=None, punt_categories=(), snapshot=None):
+                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None):
     league = metadata.league
-    snapshot = snapshot or build_league_snapshot(metadata, period)
-    raw = league.espn_request.get_league()
+    snapshot = snapshot or build_league_snapshot(metadata, period, **projection_snapshot_options(simulation_mode))
+    injury_context = projection_injury_context(metadata, snapshot, simulation_mode,
+        punt_team_id=punt_team_id, punt_categories=punt_categories)
+    raw = getattr(metadata, 'league_data', None) or league.espn_request.get_league()
     schedule_settings = raw['settings']['scheduleSettings']
     divisions = schedule_settings.get('divisions', [])
     if len(divisions) > 1 or metadata.scoring_type != 'H2H_MOST_CATEGORIES':
@@ -34,6 +36,8 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
     ids = {t['team_id'] for t in teams}
     current, final = int(league.currentMatchupPeriod), int(league.settings.reg_season_count)
     pairs = defaultdict(list)
+    completed_outcomes = {}
+    official_winners = {'HOME': 1, 'AWAY': -1, 'TIE': 0}
     # Read once, fail closed instead of silently forecasting an incomplete schedule.
     seen = set()
     for match in raw.get('schedule', []):
@@ -48,6 +52,9 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
             raise ValueError('Schedule references an unknown fantasy team')
         seen.add(identity)
         pairs[week].append((a, b))
+        winner = match.get('winner')
+        if week < current and winner in official_winners:
+            completed_outcomes[week, a, b] = official_winners[winner]
     for week in range(1, final + 1):
         counts = Counter(t for pair in pairs[week] for t in pair)
         if len(teams) % 2 == 0 and (set(counts) != ids or set(counts.values()) != {1}):
@@ -56,17 +63,25 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
     categories, reverse = metadata.get_categories(), metadata.reverse_categories
     historical, historical_record = [], {t: [0, 0, 0] for t in ids}
     for week in range(1, min(current, final + 1)):
-        stats = metadata.get_all_teams_stats_for_week(week)
+        stats = None
         for a, b in pairs[week]:
-            if a not in stats or b not in stats:
-                raise ValueError(f'Missing historical score for week {week}: {a}/{b}')
-            comparison = compare_category_stats(stats[a]['stats'], stats[b]['stats'], categories, reverse)
-            outcome = int(comparison['team1_wins'] > comparison['team2_wins']) - int(comparison['team1_wins'] < comparison['team2_wins'])
-            if outcome == 0 and tie_category:
-                delta = stats[a]['stats'].get(tie_category, 0) - stats[b]['stats'].get(tie_category, 0)
-                if tie_category in reverse:
-                    delta = -delta
-                outcome = int(delta > 0) - int(delta < 0)
+            outcome = completed_outcomes.get((week, a, b))
+            if outcome is None:
+                # Some archived schedules lack a final winner. Read box scores
+                # only for those matchups, at most once per week.
+                if stats is None:
+                    stats = metadata.get_all_teams_stats_for_week(week)
+                if a not in stats or b not in stats:
+                    raise ValueError(f'ESPN не отдал итог матчапа за неделю {week}. Повторите расчёт позже.')
+                left, right = stats[a]['stats'], stats[b]['stats']
+                comparison = compare_category_stats(left, right, categories, reverse)
+                wins, losses = comparison['team1_wins'], comparison['team2_wins']
+                outcome = int(wins > losses) - int(wins < losses)
+                if outcome == 0 and tie_category:
+                    delta = left.get(tie_category, 0) - right.get(tie_category, 0)
+                    if tie_category in reverse:
+                        delta = -delta
+                    outcome = int(delta > 0) - int(delta < 0)
             historical.append((a, b, outcome))
             historical_record[a][0 if outcome > 0 else 1 if outcome < 0 else 2] += 1
             historical_record[b][0 if outcome < 0 else 1 if outcome > 0 else 2] += 1
@@ -74,14 +89,18 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
         if historical_record[team['team_id']] != [team[k] for k in ('wins', 'losses', 'ties')]:
             raise ValueError(f"Official record and completed schedule disagree for {team['team_name']}; refresh league data")
 
-    selected = {}
+    selected, timelines = {}, {}
     for team in teams:
         team_id = team['team_id']
         custom = (custom_rosters or {}).get(team_id, ())
         roster = [p.as_projection_player() for p in snapshot.team_players(team_id)]
         if custom and not set(custom).issubset({p['name'] for p in roster}):
             raise ValueError(f'Stale custom roster for team {team_id}')
-        selected[team_id] = select_projection_roster(roster, simulation_mode, top_n_players, custom)
+        timeline = {}
+        selected[team_id] = select_projection_roster(roster, simulation_mode, top_n_players, custom,
+                                                    injury_context=injury_context, team_id=team_id, timeline=timeline)
+        if injury_context:
+            timelines[str(team_id)] = timeline
     plans, scheduled_players = [], {}
     for week in range(current, final + 1):
         days = get_remaining_scoring_periods(league, week) if week == current else get_matchup_scoring_periods(league, week)
@@ -92,8 +111,10 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
         actual, games = {}, {}
         for team in teams:
             team_id = team['team_id']
-            players = [{**p, 'future_only': week == current} for p in selected[team_id]]
-            lineup = build_matchup_lineups(players, days, slots=snapshot.active_slots, punt_categories=punt_categories)
+            players = [{**p, 'future_only': week == current, 'as_of': snapshot.created_at}
+                       for p in selected[team_id]]
+            team_punts = injury_context.punts_for(team_id) if injury_context else punt_categories
+            lineup = build_matchup_lineups(players, days, slots=snapshot.active_slots, punt_categories=team_punts)
             games[team_id] = {}
             for player in players:
                 count = lineup['selected_games'].get(player['name'], 0)
@@ -121,7 +142,11 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
                          'current_week': current, 'regular_season_end': final,
                          'as_of': snapshot.created_at.isoformat(), 'simulation_mode': simulation_mode,
                          'top_n_players': top_n_players, 'punt_categories': list(punt_categories),
-                         'rosters': {str(t): [p['name'] for p in roster] for t, roster in selected.items()},
+                         'rosters': {str(t): [p['name'] for p in roster
+                                              if injury_context is None or roster_available_on(p, injury_context.as_of)]
+                                     for t, roster in selected.items()},
+                         **({'roster_timelines': timelines, 'roster_limit': injury_context.roster_limit, 'punt_team_id': punt_team_id,
+                             'injury_report_at': injury_context.updated_at} if injury_context else {}),
                          'scoring_type': metadata.scoring_type,
                          'playoff_seeding_rule': schedule_settings.get('playoffSeedingRule')}}
 

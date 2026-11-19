@@ -4,10 +4,11 @@ from collections import defaultdict
 from typing import Any, Dict
 
 from core.projection import get_matchup_scoring_periods, get_remaining_scoring_periods, project_team_stats
+from core.roster_rules import static_roster_mode
 from core.matchup_value import combine_stats
 from core.simulation import compare_category_stats
 from core.snapshot import build_league_snapshot
-from services.projections import project_snapshot_for_matchup, select_projection_roster
+from .projections import project_snapshot_for_matchup, projection_injury_context, projection_snapshot_options, select_projection_roster
 from .forecast_history import record
 from core.config import CATEGORIES, REVERSE_CATEGORIES
 import logging
@@ -17,7 +18,9 @@ import sqlite3
 def project_regular_season(league_metadata, period: str, calculation_engine: str = "calendar",
                            simulation_mode="all", top_n_players=13,
                            custom_team_id=None, custom_team_players=(), snapshot_override=None,
-                           custom_rosters=None, punt_categories=(), record_forecasts=True) -> Dict[str, Any]:
+                           custom_rosters=None, punt_categories=(), record_forecasts=True, punt_team_id=None) -> Dict[str, Any]:
+    if calculation_engine == "legacy":
+        simulation_mode = static_roster_mode(simulation_mode)
     league = league_metadata.league
     teams = league_metadata.get_teams()
     regular_season_end = int(league.settings.reg_season_count)
@@ -35,8 +38,16 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
     projected_matchups = defaultdict(list)
 
     has_future_matchups = first_projection_period <= regular_season_end
+    injury_context, timelines, planned_rosters = None, {}, None
     if has_future_matchups:
-        snapshot = snapshot_override or build_league_snapshot(league_metadata, period)
+        snapshot = snapshot_override or build_league_snapshot(league_metadata, period, **projection_snapshot_options(simulation_mode))
+        injury_context = projection_injury_context(league_metadata, snapshot, simulation_mode,
+            punt_team_id=punt_team_id, punt_categories=punt_categories)
+        if injury_context:
+            planned_rosters = {}
+            for team in teams:
+                roster = [p.as_projection_player() for p in snapshot.team_players(team.team_id)]
+                planned_rosters[team.team_id], timelines[team.team_id] = injury_context.plan(roster, team.team_id)
         legacy_team_stats = None
         if calculation_engine == "legacy":
             legacy_team_stats = {}
@@ -71,6 +82,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
                     simulation_mode=simulation_mode, top_n_players=top_n_players,
                     custom_team_id=custom_team_id, custom_team_players=custom_team_players,
                     custom_rosters=custom_rosters, punt_categories=punt_categories,
+                    planned_rosters=planned_rosters, injury_context=injury_context,
                 )
                 if matchup_period == current_period:
                     for team in teams:
@@ -142,7 +154,9 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
 
     return {
         "period": period,
-        "assumptions": "Сценарий с выбранными составами: все выбранные игроки считаются играющими независимо от статуса травмы. Текущая неделя: фактическая статистика плюс ещё не начавшиеся игры. Будущие замены и разброс результатов не предсказываются; место не является вероятностью финиша.",
+        "assumptions": ("Отчёт ESPN определяет даты возвращений и прогнозные дропы. Текущая неделя: фактическая статистика плюс ещё не начавшиеся игры."
+                        if injury_context else "Сценарий с выбранными составами: все выбранные игроки считаются играющими независимо от статуса травмы. Текущая неделя: фактическая статистика плюс ещё не начавшиеся игры. Будущие замены и разброс результатов не предсказываются; место не является вероятностью финиша."),
+        **({"roster_timelines": timelines, "injury_report_at": injury_context.updated_at} if injury_context else {}),
         "current_matchup_period": current_period,
         "regular_season_end": regular_season_end,
         "standings": standings,

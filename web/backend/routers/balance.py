@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends
 from dependencies import get_league_meta
 from core.z_score import calculate_z_scores
+from core.roster_rules import static_roster_mode
 from core.config import CATEGORIES, DEFAULT_PERIOD
 from utils.calculations import select_top_n_players
 from typing import Optional, List
@@ -20,21 +21,18 @@ def get_team_balance(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
-    league_meta=Depends(get_league_meta)
+    league_meta=Depends(get_league_meta),
 ):
     """
     Получает данные для радар-графика баланса команды.
     Возвращает Z-scores по категориям.
     """
     # Определяем exclude_ir на основе simulation_mode
-    exclude_ir = (simulation_mode == "exclude_ir")
+    exclude_ir = static_roster_mode(simulation_mode) == "exclude_ir"
     
     # Рассчитываем Z-scores для всей лиги
     # В режиме top_n берем всех (включая IR), чтобы потом выбрать лучших
-    if simulation_mode == "top_n":
-        data = calculate_z_scores(league_meta, period, exclude_ir=False)
-    else:
-        data = calculate_z_scores(league_meta, period, exclude_ir=exclude_ir)
+    data = calculate_z_scores(league_meta, period, exclude_ir=exclude_ir)
     
     if not data['players']:
         return {"error": "No data found"}

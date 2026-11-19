@@ -16,10 +16,11 @@ router = APIRouter(prefix='/api/probabilistic', tags=['probabilistic'])
 
 class ProbabilityRequest(BaseModel):
     period: str = DEFAULT_PERIOD
-    simulation_mode: Literal['all', 'exclude_ir', 'top_n'] = 'top_n'
+    simulation_mode: Literal['all', 'exclude_ir', 'top_n', 'injury_aware'] = 'top_n'
     top_n_players: int = Field(default=13, ge=1, le=30)
     custom_rosters: dict[int, list[str]] = Field(default_factory=dict)
     punt_categories: list[str] = Field(default_factory=list, max_length=20)
+    punt_team_id: int | None = None
     trials: int = Field(default=10000, ge=1000, le=30000)
     seed: int = Field(default=20261116, ge=0, le=2**32 - 1)
 
@@ -57,12 +58,12 @@ def start_contribution(body: ContributionRequest, metadata=Depends(get_league_me
     if not feature_flags.PROBABILISTIC_ENABLED:
         raise HTTPException(503, 'Вероятностный режим временно отключён')
     ids = {team.team_id for team in metadata.get_teams()}
-    if body.team_id not in ids or set(body.custom_rosters) - ids:
+    if body.team_id not in ids or set(body.custom_rosters) - ids or (body.punt_team_id is not None and body.punt_team_id not in ids):
         raise HTTPException(422, 'Неизвестная команда')
     if set(body.punt_categories) - set(metadata.get_categories()):
         raise HTTPException(422, 'Неизвестные пант-категории')
     try:
-        return contribution_jobs.submit(metadata, body.model_dump())
+        return contribution_jobs.submit(metadata, body.model_dump(exclude_none=True))
     except RuntimeError as error:
         raise HTTPException(409, str(error)) from error
 
@@ -79,7 +80,9 @@ def get_contribution(job_id: str, metadata=Depends(get_league_meta)):
 def start_trade_probability(body: TradeProbabilityRequest, metadata=Depends(get_league_meta)):
     if not feature_flags.PROBABILISTIC_ENABLED:
         raise HTTPException(503, 'Вероятностный режим временно отключён')
-    params = body.model_dump()
+    params = body.model_dump(exclude_none=True)
+    if body.punt_team_id is not None and body.punt_team_id not in {t.team_id for t in metadata.get_teams()}:
+        raise HTTPException(422, 'Неизвестная команда')
     if set(body.punt_categories) - set(metadata.get_categories()):
         raise HTTPException(422, 'Неизвестные пант-категории')
     try:
@@ -105,10 +108,11 @@ def start_probability_job(body: ProbabilityRequest, metadata=Depends(get_league_
         raise HTTPException(503, 'Вероятностный режим временно отключён')
     if set(body.punt_categories) - set(metadata.get_categories()):
         raise HTTPException(422, 'Неизвестные пант-категории')
-    if set(body.custom_rosters) - {team.team_id for team in metadata.get_teams()}:
+    ids = {team.team_id for team in metadata.get_teams()}
+    if set(body.custom_rosters) - ids or (body.punt_team_id is not None and body.punt_team_id not in ids):
         raise HTTPException(422, 'Неизвестная команда')
     try:
-        return probability_jobs.submit(metadata, body.model_dump())
+        return probability_jobs.submit(metadata, body.model_dump(exclude_none=True))
     except RuntimeError as error:
         raise HTTPException(409, str(error)) from error
 

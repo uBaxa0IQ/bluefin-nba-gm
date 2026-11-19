@@ -4,9 +4,9 @@ const contribution={key:null,version:0,job:null,error:'',expanded:null,sort:'win
 function contributionParams(team){
  const custom={};
  if(s.rosterMode==='top_n')for(const t of teams)custom[t.team_id]=leagueSelected(t.team_id).map(p=>p.name).sort();
- return {...probabilityParams(),custom_rosters:custom,punt_categories:[],team_id:team,trials:3000};
+ return {...probabilityParams(),custom_rosters:custom,punt_categories:injuryMode()?punts():[],team_id:team,trials:3000};
 }
-function contributionKey(team){return JSON.stringify([settings.season.league_id,settings.season.year,contributionParams(team),(()=>{const data=resource('/api/refresh-status',60000).data;return data?.data_version??data?.last_refresh_time;})()]);}
+function contributionKey(team){return JSON.stringify([settings.season.league_id,settings.season.year,contributionParams(team),(()=>{const data=resource(refreshStatusPath(),60000).data;return data?.data_version??data?.last_refresh_time;})()]);}
 async function contributionRun(team){
  const key=contributionKey(team),version=++contribution.version,params=contributionParams(team);
  if(s.overlay==='contribution-player')s.overlay=null;

@@ -44,6 +44,11 @@ class BoundedEspnRequests(EspnFantasyRequests):
         data = self._get(self.LEAGUE_ENDPOINT, params, headers, extend)
         return data[0] if isinstance(data, list) else data
 
+    def get_league(self):
+        data = super().get_league()
+        self.last_league_data = data
+        return data
+
     def get(self, params=None, headers=None, extend=""):
         return self._get(self.ENDPOINT, params, headers, extend)
 

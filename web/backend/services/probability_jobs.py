@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from core.monte_carlo import simulate_seasons
 from core.analytics_cache import analytics_version, digest
+from core.injuries import INJURY_MODE, projection_injury_report
 from .game_history import build_distributions
 from .monte_carlo import prepare_season
 
@@ -21,7 +22,7 @@ def run_probability_job(metadata, params, progress):
     progress('calendar', 0, 0)
     prepared = prepare_season(metadata, params['period'], simulation_mode=params['simulation_mode'],
                               top_n_players=params['top_n_players'], custom_rosters=params['custom_rosters'],
-                              punt_categories=params['punt_categories'])
+                              punt_categories=params['punt_categories'], punt_team_id=params.get('punt_team_id'))
     progress('histories', 0, len(prepared['players']))
     distributions, coverage = build_distributions(
         prepared['players'], metadata.year, ROOT / '.cache' / 'monte_carlo' / 'game_logs',
@@ -32,7 +33,8 @@ def run_probability_job(metadata, params, progress):
                               categories=prepared['categories'], reverse_categories=prepared['reverse_categories'],
                               historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
                               trials=params['trials'], seed=params['seed'],
-                              matchup_tie_category=prepared.get('matchup_tie_category'))
+                              matchup_tie_category=prepared.get('matchup_tie_category'),
+                              injury_aware=params['simulation_mode'] == INJURY_MODE)
     result['metadata'] = prepared['metadata']
     result['history_coverage'] = coverage
     return result
@@ -110,7 +112,10 @@ class ProbabilityJobs:
         scope = self.scope(metadata)
         stamp = getattr(metadata, 'last_refresh_time', None)
         source_version = stamp.isoformat() if hasattr(stamp, 'isoformat') else str(stamp or '')
-        data_version = analytics_version(metadata, stochastic=True)
+        injury_aware = params.get('simulation_mode') == INJURY_MODE
+        if injury_aware:
+            metadata.projection_injuries = projection_injury_report(metadata)
+        data_version = analytics_version(metadata, stochastic=True, injury_aware=True) if injury_aware else analytics_version(metadata, stochastic=True)
         signature = digest([scope, data_version, params] + ([self.cache_revision] if self.cache_revision else []))
         cached = self.find(metadata, signature)
         if cached:

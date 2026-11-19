@@ -16,6 +16,7 @@ from utils.calculations import (
     select_top_n_players
 )
 from trade_log_db import log_trade
+from core.roster_rules import static_roster_mode
 from services.trades import analyze_calendar_trade
 import math
 import json
@@ -37,7 +38,8 @@ def analyze_trade(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     # Определяем exclude_ir на основе simulation_mode
-    exclude_ir = (request.simulation_mode == "exclude_ir")
+    strength_mode = static_roster_mode(request.simulation_mode)
+    exclude_ir = strength_mode == "exclude_ir"
     
     # Получаем Z-scores всех игроков
     data = calculate_z_scores(league_meta, request.period, exclude_ir=exclude_ir)
@@ -253,19 +255,19 @@ def analyze_trade(
     # Keep the same manual roster policy in raw totals and league rankings.
     # Пант-категории не влияют на симуляции - используем пустой список
     ranks_before_z = calculate_simulation_ranks(
-        all_players_before, 'z_scores', league_meta, request.period, request.simulation_mode, [],
+        all_players_before, 'z_scores', league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     ranks_after_z = calculate_simulation_ranks(
-        all_players_after, 'z_scores', league_meta, request.period, request.simulation_mode, [],
+        all_players_after, 'z_scores', league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     ranks_before_avg = calculate_simulation_ranks(
-        all_players_before, 'team_stats_avg', league_meta, request.period, request.simulation_mode, [],
+        all_players_before, 'team_stats_avg', league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     ranks_after_avg = calculate_simulation_ranks(
-        all_players_after, 'team_stats_avg', league_meta, request.period, request.simulation_mode, [],
+        all_players_after, 'team_stats_avg', league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     
@@ -301,20 +303,20 @@ def analyze_trade(
     # Use the same post-trade selection for category ranks as for raw totals.
     # Пант-категории не влияют на симуляции - используем пустой список
     category_rankings_before = calculate_category_rankings(
-        all_players_before, request.my_team_id, league_meta, request.period, request.simulation_mode, [],
+        all_players_before, request.my_team_id, league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     category_rankings_after = calculate_category_rankings(
-        all_players_after, request.my_team_id, league_meta, request.period, request.simulation_mode, [],
+        all_players_after, request.my_team_id, league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     
     their_category_rankings_before = calculate_category_rankings(
-        all_players_before, request.their_team_id, league_meta, request.period, request.simulation_mode, [],
+        all_players_before, request.their_team_id, league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     their_category_rankings_after = calculate_category_rankings(
-        all_players_after, request.their_team_id, league_meta, request.period, request.simulation_mode, [],
+        all_players_after, request.their_team_id, league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     
@@ -417,7 +419,7 @@ def analyze_trade(
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-        simulation_mode=request.simulation_mode,
+        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id,
     ) if request.calculation_engine != "legacy" else None
 
     return {
@@ -478,7 +480,8 @@ def analyze_multi_team_trade(
                            {move.team_id: {'give': move.give, 'receive': move.receive} for move in request.trades})
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    exclude_ir = (getattr(request, "simulation_mode", "") == "exclude_ir")
+    strength_mode = static_roster_mode(request.simulation_mode)
+    exclude_ir = strength_mode == "exclude_ir"
     
     # Валидация
     validation_errors = []
@@ -698,19 +701,19 @@ def analyze_multi_team_trade(
     # Keep manual selections consistent across the team totals and rankings.
     # Пант-категории не влияют на симуляции - используем пустой список
     ranks_before_z = calculate_simulation_ranks(
-        all_players_before, 'z_scores', league_meta, request.period, request.simulation_mode, [],
+        all_players_before, 'z_scores', league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     ranks_after_z = calculate_simulation_ranks(
-        all_players_after, 'z_scores', league_meta, request.period, request.simulation_mode, [],
+        all_players_after, 'z_scores', league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     ranks_before_avg = calculate_simulation_ranks(
-        all_players_before, 'team_stats_avg', league_meta, request.period, request.simulation_mode, [],
+        all_players_before, 'team_stats_avg', league_meta, request.period, strength_mode, [],
         request.top_n_players, request.custom_team_players
     )
     ranks_after_avg = calculate_simulation_ranks(
-        all_players_after, 'team_stats_avg', league_meta, request.period, request.simulation_mode, [],
+        all_players_after, 'team_stats_avg', league_meta, request.period, strength_mode, [],
         request.top_n_players, after_custom_map
     )
     
@@ -740,11 +743,11 @@ def analyze_multi_team_trade(
         # Compare category places using that same post-trade selection.
         # Пант-категории не влияют на симуляции - используем пустой список
         category_rankings_before = calculate_category_rankings(
-            all_players_before, team_id, league_meta, request.period, request.simulation_mode, [],
+            all_players_before, team_id, league_meta, request.period, strength_mode, [],
             request.top_n_players, request.custom_team_players
         )
         category_rankings_after = calculate_category_rankings(
-            all_players_after, team_id, league_meta, request.period, request.simulation_mode, [],
+            all_players_after, team_id, league_meta, request.period, strength_mode, [],
             request.top_n_players, after_custom_map
         )
         
@@ -819,7 +822,7 @@ def analyze_multi_team_trade(
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-        simulation_mode=request.simulation_mode,
+        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id,
     ) if request.calculation_engine != "legacy" else None
 
     return {

@@ -12,6 +12,8 @@ from .monte_carlo import prepare_season
 from .game_history import build_distributions
 from .probability_jobs import ProbabilityJobs, ROOT
 from core.analytics_cache import analytics_version
+from core.injuries import INJURY_MODE
+from .projections import projection_snapshot_options
 
 _before_cache = {}
 
@@ -32,7 +34,8 @@ def category_probabilities(forecast):
 
 
 def trade_snapshots(metadata, params):
-    snapshot = build_league_snapshot(metadata, params['period'])
+    mode = params.get('simulation_mode', 'top_n')
+    snapshot = build_league_snapshot(metadata, params['period'], **projection_snapshot_options(mode))
     a, b = params['my_team_id'], params['their_team_id']
     give, receive = params['i_give'], params['i_receive']
     if a == b or not give or not receive:
@@ -45,7 +48,9 @@ def trade_snapshots(metadata, params):
     moved = []
     for player in snapshot.players:
         destination = b if player.fantasy_team_id == a and player.name in give else a if player.fantasy_team_id == b and player.name in receive else None
-        moved.append(replace(player, fantasy_team_id=destination, fantasy_team_name=names[destination]) if destination is not None else player)
+        moved.append(replace(player, fantasy_team_id=destination, fantasy_team_name=names[destination],
+                             lineup_slot='BE' if mode == INJURY_MODE else player.lineup_slot)
+                     if destination is not None else player)
     after = replace(snapshot, players=tuple(moved))
     custom = params['custom_rosters']
     after_custom = dict(custom)
@@ -61,6 +66,8 @@ def run_trade_probability(metadata, params, progress):
     progress('calendar', 0, 2)
     before_snapshot, after_snapshot, after_custom = trade_snapshots(metadata, params)
     common = {k: params[k] for k in ('period', 'simulation_mode', 'top_n_players', 'punt_categories')}
+    if 'punt_team_id' in params:
+        common['punt_team_id'] = params['punt_team_id']
     before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'], snapshot=before_snapshot)
     after = prepare_season(metadata, **common, custom_rosters=after_custom, snapshot=after_snapshot)
     players = {p['player_id']: p for plan in (before, after) for p in plan['players']}
@@ -70,9 +77,13 @@ def run_trade_probability(metadata, params, progress):
         progress=lambda done, total: progress('histories', done, total))
     ids = {params['my_team_id'], params['their_team_id']}
     result = {'trials': 3000, 'before': None, 'after': None}
+    if params['simulation_mode'] == INJURY_MODE:
+        result['roster_timelines'] = {label: plan['metadata']['roster_timelines']
+                                      for label, plan in (('before', before), ('after', after))}
     # Share baseline category probabilities and standings across trade proposals.
     cache_key = hashlib.sha256(json.dumps([metadata.league_id, metadata.year,
-        analytics_version(metadata, stochastic=True), common, params['custom_rosters'],
+        analytics_version(metadata, stochastic=True, injury_aware=common['simulation_mode'] == INJURY_MODE),
+        common, params['custom_rosters'],
         params.get('seed', 20261116)], sort_keys=True).encode()).hexdigest()
     for label, prepared in (('before', before), ('after', after)):
         progress(label, 0, 3000, dict(result))

@@ -4,6 +4,7 @@
 from fastapi import APIRouter, Depends, Query
 from dependencies import get_league_meta
 from core.z_score import calculate_z_scores
+from core.roster_rules import static_roster_mode
 from core.config import CATEGORIES, DEFAULT_PERIOD, LEAGUE_ID, PERIODS, YEAR
 from utils.calculations import calculate_team_raw_stats, select_top_n_players
 from typing import Optional
@@ -556,7 +557,7 @@ def generate_prompt(
             punt_cats_list = [cat.strip() for cat in punt_categories.split(',') if cat.strip()]
         
         # 4. Информация об игроках (все)
-        exclude_ir = (simulation_mode == "exclude_ir")
+        exclude_ir = static_roster_mode(simulation_mode) == "exclude_ir"
         z_data = calculate_z_scores(league_meta, period, exclude_ir=exclude_ir)
         all_players_stats = league_meta.get_all_players_stats(period, 'avg', exclude_ir=exclude_ir)
         

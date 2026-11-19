@@ -155,7 +155,8 @@ def test_configured_weekly_tiebreaker_changes_result_without_changing_category_o
     assert match['categories']['REB']['p_loss'] == 1
 
 
-def test_calendar_adapter_freezes_legal_lineup_and_keeps_injured_selected_players(monkeypatch):
+@pytest.mark.parametrize('official_winner', [None, 'HOME'])
+def test_calendar_adapter_freezes_legal_lineup_and_keeps_injured_selected_players(monkeypatch, official_winner):
     from datetime import datetime, timedelta, timezone
     from core.snapshot import LeagueSnapshot, PlayerSnapshot
     from web.backend.services import monte_carlo as adapter
@@ -176,6 +177,13 @@ def test_calendar_adapter_freezes_legal_lineup_and_keeps_injured_selected_player
         get_all_teams_stats_for_week=lambda w: {1: {'stats': {'PTS': 10}}, 2: {'stats': {'PTS': 5}}},
         get_matchup_box_score=lambda w, t: {'totals': {}}, get_categories=lambda: ['PTS'],
         reverse_categories=set(), scoring_type='H2H_MOST_CATEGORIES', league_id=1, year=2027)
+    if official_winner:
+        raw['schedule'][0]['winner'] = official_winner
+
+        def unexpected_history_fetch(week):
+            pytest.fail(f'An official result is already known for week {week}')
+
+        metadata.get_all_teams_stats_for_week = unexpected_history_fetch
     monkeypatch.setattr(adapter, 'get_matchup_scoring_periods', lambda league, w: [w])
     monkeypatch.setattr(adapter, 'get_remaining_scoring_periods', lambda league, w: [w])
     plan = adapter.prepare_season(metadata, 'test', snapshot=snapshot)

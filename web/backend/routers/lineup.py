@@ -23,6 +23,7 @@ def optimize_team_lineup(
     top_n_players: int = 13,
     custom_team_players: str | None = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
 ):
     """Return the best valid lineup for every remaining scoring day."""
     punts = tuple(
@@ -32,7 +33,7 @@ def optimize_team_lineup(
     )
     if calculation_engine == "legacy":
         try:
-            return rank_lineup_legacy(league_meta, team_id, period, punts)
+            return rank_lineup_legacy(league_meta, team_id, period, punts, simulation_mode, punt_team_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
@@ -43,7 +44,7 @@ def optimize_team_lineup(
             matchup_period=matchup_period,
             remaining_only=remaining_only,
             punt_categories=punts,
-            simulation_mode=simulation_mode, top_n_players=top_n_players,
+            simulation_mode=simulation_mode, top_n_players=top_n_players, punt_team_id=punt_team_id,
             custom_team_players=tuple(custom_team_players.split(",")) if custom_team_players else (),
         )
     except ValueError as exc:

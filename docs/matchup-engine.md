@@ -14,10 +14,24 @@ Draft simulations and draft ML are separate and remain available.
 Saved browser settings for the former full-roster option migrate to `exclude_ir`.
 API callers can still request `all` explicitly to include every rostered player.
 
-OUT, DTD, other injury statuses and expected return dates never remove a selected
-player from a calendar forecast. This is a scenario in which the chosen roster
-plays its scheduled games. Injury labels remain visible, and injured assets
-remain protected from automatic drop recommendations.
+The `top_n` and `exclude_ir` browser modes assume selected players play their scheduled games.
+
+The «С учётом травм» roster option uses `injury_aware`. The forecast reads the public
+ESPN injury report and the league's roster limit. It excludes OUT players until
+their estimated return date in NBA calendar time. OUT without a usable date
+remains unavailable in that forecast. On return from IR, a full roster drops its
+eligible player with the lowest overall Z-score on the activation day. A player
+already occupying a regular slot returns without a roster move. An explicit ESPN
+undroppable flag protects the player. When punts are enabled, the main team's
+drop and lineup scores use its active categories. Opponents use their overall Z.
+API callers identify the main team with `punt_team_id`. Simulated drops persist through later weeks
+and are visible in the roster timeline. They affect neither credited scores nor ESPN.
+
+Calendar and Monte Carlo forecasts, including forecasts for trades and add/drop
+scenarios, use this policy. The two sides of an exchange receive independent
+roster timelines. Undated averages and Z views, including trade rankings, use
+the same membership as «Без IR» in injury mode: players in regular slots count
+even when OUT, and players in IR are excluded until their actual activation.
 
 ## Calculation
 

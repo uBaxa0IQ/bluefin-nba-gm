@@ -37,13 +37,14 @@ def get_free_agent_recommendations(
     top_n_players: int = Query(default=13, ge=1),
     custom_team_players: str | None = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
 ):
     punts = tuple(category.strip() for category in punt_categories.split(",") if category.strip())
     try:
         return recommend_free_agents(
             league_meta, team_id, period, position, punts, limit,
             calculation_engine, simulation_mode, top_n_players,
-            tuple(custom_team_players.split(",")) if custom_team_players else (),
+            tuple(custom_team_players.split(",")) if custom_team_players else (), punt_team_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

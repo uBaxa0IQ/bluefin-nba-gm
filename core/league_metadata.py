@@ -64,7 +64,17 @@ class LeagueMetadata:
 
     def _configure_scoring(self):
         """Read the active category set from ESPN and update shared config."""
-        raw = self.league.espn_request.get_league()
+        request = self.league.espn_request
+        raw = getattr(request, 'last_league_data', None) or request.get_league()
+        self.league_data = raw
+        protections_enabled = raw.get('settings', {}).get('rosterSettings', {}).get('isUsingUndroppableList', True)
+        self.undroppable_ids = {
+            entry['playerId'] for team in raw.get('teams', [])
+            for entry in (team.get('roster') or {}).get('entries', [])
+            if entry.get('playerId') and (entry.get('droppable') is False or
+                (entry.get('playerPoolEntry') or {}).get('droppable') is False or
+                ((entry.get('playerPoolEntry') or {}).get('player') or {}).get('droppable') is False)
+        } if protections_enabled else set()
         capture_league_inputs(self, raw)
         scoring = raw.get('settings', {}).get('scoringSettings', {})
         self.scoring_type = scoring.get('scoringType')
@@ -482,7 +492,7 @@ class LeagueMetadata:
         
         return filtered
     
-    def get_all_players_stats(self, period: str, stats_type: str = 'total', exclude_ir: bool = False, custom_weighted_coeffs: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
+    def get_all_players_stats(self, period: str, stats_type: str = 'total', exclude_ir: bool = False, custom_weighted_coeffs: Optional[Dict[str, float]] = None, *, include_unscored=False) -> List[Dict[str, Any]]:
         """
         Получает статистику всех игроков всех команд за указанный период.
         
@@ -527,13 +537,13 @@ class LeagueMetadata:
                 
                 stats = self.get_player_stats(player, period, stats_type, custom_weighted_coeffs=custom_weighted_coeffs)
                 
-                if stats:
+                if stats or include_unscored:
                     player_data = {
                         'player_id': getattr(player, 'playerId', None),
                         'name': player.name,
                         'position': getattr(player, 'position', 'N/A'),
                         'eligible_slots': getattr(player, 'eligibleSlots', []),
-                        'lineup_slot': getattr(player, 'lineupSlot', ''),
+                        'lineup_slot': getattr(player, 'lineupSlot', '') or getattr(player, 'slot_position', ''),
                         'injured': getattr(player, 'injured', False),
                         'injury_status': getattr(player, 'injuryStatus', 'ACTIVE'),
                         'expected_return_date': getattr(player, 'expected_return_date', None),
@@ -541,7 +551,9 @@ class LeagueMetadata:
                         'schedule': getattr(player, 'schedule', {}),
                         'team_id': team.team_id,
                         'team_name': team.team_name,
-                        'stats': stats
+                        'stats': stats or (raw_average(player, PERIODS['projected']) if stats_type == 'avg' else None) or {},
+                        'unscored': not bool(stats),
+                        'droppable': getattr(player, 'playerId', None) not in getattr(self, 'undroppable_ids', ()),
                     }
                     all_players_stats.append(player_data)
         
@@ -635,7 +647,8 @@ class LeagueMetadata:
             return []
 
         try:
-            schedule = self.league.espn_request.get_league().get("schedule", [])
+            raw = getattr(self, 'league_data', None) or self.league.espn_request.get_league()
+            schedule = raw.get("schedule", [])
         except Exception as error:
             print(f"Ошибка получения расписания ESPN: {error}")
             return []

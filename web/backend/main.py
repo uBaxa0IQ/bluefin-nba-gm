@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from web.backend.access import authorized
+from core.injuries import InjuryReportUnavailable
 from contextlib import asynccontextmanager
 import sys
 import os
@@ -83,6 +84,11 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(InjuryReportUnavailable)
+async def injury_report_error(request, error):
+    return JSONResponse({'detail': str(error)}, status_code=502)
 
 
 @app.middleware('http')

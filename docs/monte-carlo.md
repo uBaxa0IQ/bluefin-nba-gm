@@ -57,7 +57,14 @@ with a JSON object mapping team IDs to player names. `--punts PTS,FT%` affects l
 selection only; all actual scoring categories still determine matchup winners.
 
 The engine does not read browser localStorage. Default runs therefore use automatic
-top-13 rosters, not any browser-specific manual picks or punts.
+top-13 rosters, not any browser-specific manual picks or punts. Use
+`--roster-mode injury_aware` (API `simulation_mode: "injury_aware"`) for the
+dated ESPN injury and IR activation scenario. Frozen input files include the
+injury report timestamp and each team's projected roster moves. Return dates
+and drops are fixed within that scenario, while player-game performance is sampled.
+In this mode, `--punt-team-id` (API `punt_team_id`) scopes the supplied punts
+to one team's roster decisions and daily lineup. Matchup outcomes
+still use every league category.
 
 ## Outputs
 

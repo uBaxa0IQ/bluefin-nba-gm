@@ -3,10 +3,13 @@
 from datetime import datetime
 from time import monotonic
 
-from core.projection import get_matchup_scoring_periods, optimize_daily_lineup
+from core.projection import get_matchup_scoring_periods, has_game, optimize_daily_lineup
+from core.analytics_cache import analytics_version
+from core.config import DEFAULT_PERIOD
+from core.injuries import INJURY_MODE
 from core.roster_rules import league_slots
 from core.snapshot import build_league_snapshot
-from .projections import select_projection_roster
+from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
 
 
 def _player_row(player):
@@ -41,14 +44,17 @@ def _max_games(players, slots):
 
 
 def get_week_game_usage(league_meta, team_ids, *, period=None, simulation_mode="all",
-                        top_n_players=13, custom_team_id=None, custom_team_players=()):
+                        top_n_players=13, custom_team_id=None, custom_team_players=(),
+                        punt_team_id=None, punt_categories=()):
     """Return counted games and projected week totals for the matchup teams."""
     league = league_meta.league
     week = int(league.currentMatchupPeriod)
     current_day = int(league.scoringPeriodId)
+    injury_aware = simulation_mode == INJURY_MODE
+    injury_version = analytics_version(league_meta, injury_aware=True) if injury_aware else None
     selected_ids = tuple(sorted(int(team_id) for team_id in team_ids))
     cache_key = (week, current_day, selected_ids, period, simulation_mode,
-                 top_n_players, custom_team_id, tuple(custom_team_players))
+                 top_n_players, custom_team_id, tuple(custom_team_players), injury_version, punt_team_id, tuple(punt_categories))
     cache = getattr(league_meta, "_game_usage_cache", None)
     if cache and cache[0] == cache_key and monotonic() - cache[1] < 60:
         return cache[2]
@@ -81,7 +87,10 @@ def get_week_game_usage(league_meta, team_ids, *, period=None, simulation_mode="
                 if day == current_day:
                     current_lineups[team_id] = played_players
 
-    snapshot = build_league_snapshot(league_meta, period) if simulation_mode == "top_n" else None
+    snapshot = (build_league_snapshot(league_meta, period or DEFAULT_PERIOD, **projection_snapshot_options(simulation_mode))
+                if simulation_mode in {"top_n", INJURY_MODE} else None)
+    injury_context = projection_injury_context(league_meta, snapshot, simulation_mode,
+        punt_team_id=punt_team_id, punt_categories=punt_categories)
     for team in teams:
         row = rows[team.team_id]
         selection_pool = (
@@ -91,11 +100,12 @@ def get_week_game_usage(league_meta, team_ids, *, period=None, simulation_mode="
                 for player in team.roster
             ]
         )
-        selected_names = {player["name"] for player in select_projection_roster(
+        planned = {p['name']: p for p in select_projection_roster(
             selection_pool, simulation_mode, top_n_players,
             custom_team_players if team.team_id == custom_team_id else (),
+            injury_context=injury_context, team_id=team.team_id,
         )}
-        roster = [player for player in team.roster if player.name in selected_names]
+        roster = [player for player in team.roster if player.name in planned]
         remaining = 0
         for day in days:
             if day < current_day:
@@ -115,6 +125,8 @@ def get_week_game_usage(league_meta, team_ids, *, period=None, simulation_mode="
             else:
                 open_slots = slots
                 candidates = [player for player in roster if _game_on_day(player, day)]
+            if injury_context:
+                candidates = [p for p in candidates if has_game(planned[p.name], day)]
             remaining += _max_games(candidates, open_slots)
         row["projected_total"] = row["played"] + remaining
 

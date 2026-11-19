@@ -29,9 +29,9 @@ app.addEventListener('click',async event=>{
  if(action==='toggle-rosters'){const open=!(s.rosterOpen.give||s.rosterOpen.receive);s.rosterOpen={give:open,receive:open};save();render();return;}
  if(action==='trade'){
   s.tradeBusy=true;s.tradeError='';render();
-  const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),calculation_engine:'calendar',custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
-  const fingerprint=JSON.stringify([s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()]);
-  try{const d=await request('/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===JSON.stringify([s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()])){s.trade=d;if(probabilityEnabled())void tradeProbabilityRun(body);}}
+  const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),...(injuryMode()?{punt_team_id:myTeam}:{}),calculation_engine:'calendar',custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
+  const fingerprint=tradeProbabilityKey();
+  try{const d=await request('/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===tradeProbabilityKey()){s.trade=d;if(probabilityEnabled())void tradeProbabilityRun(body);}}
   catch(e){s.tradeError=e.message;}finally{s.tradeBusy=false;render();}
  }
 });
@@ -71,4 +71,13 @@ document.addEventListener('keydown',e=>{
  if(e.shiftKey&&e.code==='KeyP'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat&&!editing){e.preventDefault();s.puntsEnabled=!s.puntsEnabled;invalidate();save();render();return;}
  if((e.key==='Enter'||e.key===' ')&&e.target.matches('tr[data-match],tr[data-sim-team],.bf-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
 });
+setInterval(()=>{
+ if(s.overlay!=='settings'||document.hidden)return;
+ const path='/api/refresh-status';
+ if(cache.get(path)?.pending)return;
+ void request(path).then(data=>{
+  cache.set(path,{data,created:Date.now()});
+  if(s.overlay==='settings')render();
+ }).catch(()=>{});
+},60000);
 render();start();

@@ -81,7 +81,7 @@ def rank_trial(points, games, h2h_points, h2h_games, rng):
 def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categories=(),
                      trials=10_000, seed=20261116, playoff_teams=8,
                      historical_h2h=(), all_opponents=True, matchup_tie_category=None,
-                     paired_draws=False):
+                     paired_draws=False, injury_aware=False):
     """Probabilities are fractions in [0,1]; weeks are simulated jointly.
 
     teams: [{team_id, team_name, wins, losses, ties}]. historical_h2h:
@@ -208,7 +208,9 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
             'max_monte_carlo_standard_error': .5 / math.sqrt(trials),
             'tie_breaker': 'Win percentage; tied-group H2H if equal games; coin flip (single division).',
             'assumptions': [
-                'Fixed selected rosters, calendar slots and player availability; no injury or transaction draws.',
+                ('Fixed projected injury returns, IR activations and required drops from the frozen injury report.'
+                 if injury_aware else
+                 'Fixed selected rosters, calendar slots and player availability; no injury or transaction draws.'),
                 'Independent future player-games sampled as whole historical stat lines with recency weights.',
                 'Current-week actual counting totals fixed; percentages recomputed from component totals.',
                 'Only official scheduled matchups change standings; other pairs are hypothetical for the same week.',

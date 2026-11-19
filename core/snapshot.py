@@ -26,10 +26,11 @@ class PlayerSnapshot:
     stats: Dict[str, float]
     z_scores: Dict[str, float]
     expected_return_date: Any = None
+    droppable: bool = True
 
     @property
     def available(self) -> bool:
-        # Roster modes decide membership; injury labels never remove a player.
+        # Roster modes apply availability after the league snapshot is frozen.
         return True
 
     def as_projection_player(self) -> Dict[str, Any]:
@@ -46,6 +47,7 @@ class PlayerSnapshot:
             "injury_status": self.injury_status,
             "expected_return_date": self.expected_return_date,
             "lineup_slot": self.lineup_slot,
+            "droppable": self.droppable,
         }
 
 
@@ -63,19 +65,16 @@ class LeagueSnapshot:
         return tuple(player for player in self.players if player.fantasy_team_id == team_id)
 
 
-def build_league_snapshot(league_metadata, period: str, exclude_ir: bool = False) -> LeagueSnapshot:
+def build_league_snapshot(league_metadata, period: str, exclude_ir: bool = False, *, include_unscored=False) -> LeagueSnapshot:
     from .weighted_coefficients import load_weighted_coefficients
-    key = (period, exclude_ir, str(getattr(league_metadata, 'last_refresh_time', None)), tuple(sorted(load_weighted_coefficients().items())))
+    key = (period, exclude_ir, include_unscored, str(getattr(league_metadata, 'last_refresh_time', None)), tuple(sorted(load_weighted_coefficients().items())))
     cache = getattr(league_metadata, '_snapshot_cache', {})
     cached = cache.get(key)
     if cached and monotonic() - cached[0] < 30:
         return cached[1]
-    raw_players = league_metadata.get_all_players_stats(
-        period,
-        "avg",
-        exclude_ir=exclude_ir,
-    )
-    z_data = calculate_z_scores_from_players(raw_players)
+    options = {'include_unscored': True} if include_unscored else {}
+    raw_players = league_metadata.get_all_players_stats(period, 'avg', exclude_ir=exclude_ir, **options)
+    z_data = calculate_z_scores_from_players([p for p in raw_players if not p.get('unscored')])
     z_by_player = {
         (player["team_id"], player["name"]): player["z_scores"]
         for player in z_data["players"]
@@ -97,6 +96,7 @@ def build_league_snapshot(league_metadata, period: str, exclude_ir: bool = False
             stats=player["stats"],
             z_scores=z_by_player.get((player["team_id"], player["name"]), {}),
             expected_return_date=player.get('expected_return_date'),
+            droppable=player.get('droppable', True),
         )
         for player in raw_players
     )

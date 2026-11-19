@@ -49,9 +49,11 @@ def test_trade_of_unselected_player_does_not_replace_manual_selection():
 
 
 @pytest.mark.parametrize('multi_team', [False, True])
-def test_trade_rankings_use_the_same_manual_roster_as_raw_totals(monkeypatch, multi_team):
+@pytest.mark.parametrize('mode', ['top_n', 'injury_aware'])
+def test_trade_rankings_use_the_same_roster_as_raw_totals(monkeypatch, multi_team, mode):
     roster = {
-        1: [player('Outgoing', 5), player('Selected', 2), player('Bench', 10)],
+        1: [player('Outgoing', 5), {**player('Selected', 2), 'injury_status': 'OUT'},
+            player('Bench', 10), {**player('IR player', 100), 'lineup_slot': 'IR'}],
         2: [player('Incoming', 1), player('Opponent', 0)],
     }
     players = [
@@ -70,17 +72,22 @@ def test_trade_rankings_use_the_same_manual_roster_as_raw_totals(monkeypatch, mu
             return [
                 {'name': entry['name'], 'stats': {'PTS': entry['z_scores']['PTS']}}
                 for entry in players
+                if not exclude_ir or entry.get('lineup_slot') != 'IR'
             ]
 
+    def z_scores(*args, exclude_ir=False, **kwargs):
+        return {'players': [dict(entry) for entry in players
+                            if not exclude_ir or entry.get('lineup_slot') != 'IR']}
+
     monkeypatch.setattr(trades, 'log_trade', lambda **kwargs: None)
-    monkeypatch.setattr(trades, 'calculate_z_scores', lambda *args, **kwargs: {'players': players})
-    monkeypatch.setattr('core.z_score.calculate_z_scores', lambda *args, **kwargs: {'players': players})
+    monkeypatch.setattr(trades, 'calculate_z_scores', z_scores)
+    monkeypatch.setattr('core.z_score.calculate_z_scores', z_scores)
     calendar_selections = []
     monkeypatch.setattr(
         trades, 'analyze_calendar_trade',
-        lambda *args, **kwargs: calendar_selections.append((args[-2], args[-1])) or {},
+        lambda *args, **kwargs: calendar_selections.append((kwargs['simulation_mode'], args[-2], args[-1])) or {},
     )
-    common = dict(period='2027_total', simulation_mode='top_n', top_n_players=2,
+    common = dict(period='2027_total', simulation_mode=mode, top_n_players=2,
                   custom_team_players={1: ['Outgoing', 'Selected']}, calculation_engine='calendar')
 
     if multi_team:
@@ -101,10 +108,16 @@ def test_trade_rankings_use_the_same_manual_roster_as_raw_totals(monkeypatch, mu
         raw = result['my_team']['raw_categories']['PTS']
         rank = result['category_rankings']['my_team']['PTS']
 
-    assert raw['after'] == 3
-    assert rank['after'] == 2
-    assert calendar_selections == [({1: {'Outgoing', 'Selected'}, 2: {'Incoming', 'Opponent'}},
-                                    {1: {'Selected', 'Incoming'}, 2: {'Outgoing', 'Opponent'}})]
+    if mode == 'injury_aware':
+        assert raw['before'] == 17
+        assert raw['after'] == 13
+        assert rank['after'] == 1
+        assert calendar_selections == [(mode, None, None)]
+    else:
+        assert raw['after'] == 3
+        assert rank['after'] == 2
+        assert calendar_selections == [(mode, {1: {'Outgoing', 'Selected'}, 2: {'Incoming', 'Opponent'}},
+                                       {1: {'Selected', 'Incoming'}, 2: {'Outgoing', 'Opponent'}})]
 
 
 def test_calendar_trade_uses_selected_players_for_both_scenarios(monkeypatch):

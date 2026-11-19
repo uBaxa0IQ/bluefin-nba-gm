@@ -3,6 +3,8 @@
 import math
 
 from core.z_score import calculate_z_scores
+from core.injuries import INJURY_MODE
+from .projections import injury_roster_today
 
 
 PERCENTAGE_CATEGORIES = {"FG%", "FT%", "3PT%"}
@@ -36,23 +38,25 @@ def _matchup_bonus(player, team_stats, opponent_stats, punts):
     return bonus, details
 
 
-def rank_lineup_legacy(league_metadata, team_id, period, punts=()):
+def rank_lineup_legacy(league_metadata, team_id, period, punts=(), simulation_mode='all', punt_team_id=None):
     team = league_metadata.get_team_by_id(team_id)
     if team is None:
         raise ValueError("Team not found")
-    z_data = calculate_z_scores(league_metadata, period)
-    z_by_name = {player["name"]: player["z_scores"] for player in z_data["players"]}
-    players = []
-    for player in league_metadata.get_team_roster(team_id):
-        if getattr(player, "lineupSlot", "") == "IR":
-            continue
-        if getattr(player, "injured", False) and getattr(player, "injuryStatus", "") == "OUT":
-            continue
-        players.append({
+    if simulation_mode == INJURY_MODE:
+        players = [p for p in injury_roster_today(league_metadata, period, punt_team_id=punt_team_id,
+                                                  punt_categories=punts) if p['team_id'] == team_id]
+        if team_id != punt_team_id:
+            punts = ()
+    else:
+        z_data = calculate_z_scores(league_metadata, period)
+        z_by_name = {player["name"]: player["z_scores"] for player in z_data["players"]}
+        players = [{
             "name": player.name,
             "position": getattr(player, "position", "N/A"),
             "z_scores": z_by_name.get(player.name, {}),
-        })
+        } for player in league_metadata.get_team_roster(team_id)
+            if getattr(player, "lineupSlot", "") != "IR"
+            and not (getattr(player, "injured", False) and getattr(player, "injuryStatus", "") == "OUT")]
 
     matchup_period = int(league_metadata.league.currentMatchupPeriod)
     matchup = league_metadata.get_matchup_box_score(matchup_period, team_id)

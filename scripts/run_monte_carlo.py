@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.config import DEFAULT_PERIOD, normalize_period
+from core.injuries import INJURY_MODE
 from core.monte_carlo import simulate_seasons
 from web.backend.services.game_history import build_distributions
 from web.backend.services.monte_carlo import prepare_season, save_inputs, load_inputs
@@ -36,7 +37,7 @@ def write_reports(output, result):
                 writer.writerow([week['week'], b, a, match['official'], match['p_loss'], match['p_tie'], match['p_win']])
     lines = [f"Monte Carlo: {result['trials']:,} seasons; seed {result['seed']}",
              f"As of: {result['metadata']['as_of']}",
-             'Fixed rosters/availability; no simulated injuries or transactions.',
+             result['assumptions'][0],
              'Whole-game recency-weighted bootstrap; probabilities are not calibrated yet.', '',
              'TEAM | EXPECTED RANK | PLAYOFFS | MOST LIKELY POSITIONS']
     for team in teams:
@@ -52,10 +53,11 @@ def main(argv=None):
     parser.add_argument('--trials', type=int, default=10000)
     parser.add_argument('--seed', type=int, default=20261116)
     parser.add_argument('--period', default=DEFAULT_PERIOD)
-    parser.add_argument('--roster-mode', choices=['top_n', 'all', 'exclude_ir'], default='top_n')
+    parser.add_argument('--roster-mode', choices=['top_n', 'all', 'exclude_ir', INJURY_MODE], default='top_n')
     parser.add_argument('--top-n', type=int, default=13)
     parser.add_argument('--rosters', type=Path, help='Optional JSON: team ID -> selected player names')
-    parser.add_argument('--punts', default='', help='Comma-separated categories; only affects lineup selection')
+    parser.add_argument('--punts', default='', help='Comma-separated categories for roster and lineup choices')
+    parser.add_argument('--punt-team-id', type=int, help='Apply punts to this team when using injury_aware')
     parser.add_argument('--input', type=Path, help='Frozen inputs.json: no network calls')
     parser.add_argument('--output', type=Path, default=ROOT / '.cache' / 'monte_carlo' / 'latest')
     parser.add_argument('--workers', type=int, default=6)
@@ -76,7 +78,8 @@ def main(argv=None):
         custom = {int(t): names for t, names in json.loads(args.rosters.read_text(encoding='utf-8')).items()} if args.rosters else None
         prepared = prepare_season(metadata, normalize_period(args.period), simulation_mode=args.roster_mode,
                                   top_n_players=args.top_n, custom_rosters=custom,
-                                  punt_categories=tuple(filter(None, args.punts.split(','))))
+                                  punt_categories=tuple(filter(None, args.punts.split(','))),
+                                  punt_team_id=args.punt_team_id)
         print(f"Prepared {len(prepared['teams'])} teams, {len(prepared['weeks'])} weeks, "
               f"{len(prepared['players'])} scheduled players", flush=True)
         def progress(done, total):
@@ -90,7 +93,8 @@ def main(argv=None):
     result = simulate_seasons(prepared['teams'], prepared['weeks'], distributions,
                               categories=prepared['categories'], reverse_categories=prepared['reverse_categories'],
                               historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
-                              trials=args.trials, seed=args.seed, matchup_tie_category=prepared.get('matchup_tie_category'))
+                              trials=args.trials, seed=args.seed, matchup_tie_category=prepared.get('matchup_tie_category'),
+                              injury_aware=prepared['metadata'].get('simulation_mode') == INJURY_MODE)
     result['metadata'] = prepared['metadata']
     result['history_coverage'] = coverage
     result['history_model'] = {'sampling': 'whole_game_weighted_bootstrap', 'half_life_games': 20,

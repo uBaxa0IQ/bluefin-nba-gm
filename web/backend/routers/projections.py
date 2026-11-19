@@ -29,6 +29,7 @@ def get_league_projection(
     custom_team_id: Optional[int] = None,
     custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
 ):
     return project_league_matchup(
         league_meta,
@@ -37,7 +38,7 @@ def get_league_projection(
         remaining_only,
         [category.strip() for category in punt_categories.split(",") if category.strip()],
         simulation_mode, top_n_players, custom_team_id,
-        tuple(custom_team_players.split(',')) if custom_team_players else (),
+        tuple(custom_team_players.split(',')) if custom_team_players else (), punt_team_id=punt_team_id,
     )
 
 
@@ -50,6 +51,8 @@ def get_season_projection(
     custom_team_id: Optional[int] = None,
     custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
+    punt_categories: str = '',
 ):
     from services.season import project_regular_season
 
@@ -58,6 +61,7 @@ def get_season_projection(
         simulation_mode=simulation_mode, top_n_players=top_n_players,
         custom_team_id=custom_team_id,
         custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
+        punt_team_id=punt_team_id, punt_categories=tuple(filter(None, punt_categories.split(','))),
     )
 
 
@@ -70,6 +74,8 @@ def get_scheduled_matchups(
     custom_team_id: Optional[int] = None,
     custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
+    punt_categories: str = '',
 ):
     last_week = max((int(week) for week in league_meta.league.settings.matchup_periods), default=0)
     current_week = int(league_meta.league.currentMatchupPeriod)
@@ -80,6 +86,7 @@ def get_scheduled_matchups(
         simulation_mode=simulation_mode, top_n_players=top_n_players,
         custom_team_id=custom_team_id,
         custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
+        punt_team_id=punt_team_id, punt_categories=tuple(filter(None, punt_categories.split(','))),
     )
 
 
@@ -94,6 +101,7 @@ def get_team_projection(
     top_n_players: int = 13,
     custom_team_players: Optional[str] = None,
     league_meta=Depends(get_league_meta),
+    punt_team_id: int | None = None,
 ):
     try:
         return project_team_matchup(
@@ -104,7 +112,7 @@ def get_team_projection(
             remaining_only,
             [category.strip() for category in punt_categories.split(",") if category.strip()],
             simulation_mode, top_n_players,
-            tuple(custom_team_players.split(',')) if custom_team_players else (),
+            tuple(custom_team_players.split(',')) if custom_team_players else (), punt_team_id=punt_team_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

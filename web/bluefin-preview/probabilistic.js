@@ -8,7 +8,7 @@ const probabilityJobKey=()=>`bluefin-probabilistic-job:${settings.season.league_
 const probabilityEnabled=()=>settings?.features?.probabilistic===true;
 
 const tradeProbability={version:0,key:null,job:null,error:''};
-const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts()]);
+const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts(),injuryMode()?myTeam:null]);
 async function tradeProbabilityRun(body){
  const version=++tradeProbability.version;
  tradeProbability.key=tradeProbabilityKey();tradeProbability.job=null;tradeProbability.error='';
@@ -17,7 +17,7 @@ async function tradeProbabilityRun(body){
  if(s.rosterMode==='top_n')for(const team of teams)custom[team.team_id]=selected(team.team_id).map(p=>p.name);
  const params={my_team_id:body.my_team_id,their_team_id:body.their_team_id,i_give:body.i_give,i_receive:body.i_receive,
   period:body.period,simulation_mode:body.simulation_mode,top_n_players:body.top_n_players,
-  punt_categories:body.punt_categories,custom_rosters:custom,trials:3000,seed:20261116};
+  punt_categories:body.punt_categories,...(body.punt_team_id?{punt_team_id:body.punt_team_id}:{}),custom_rosters:custom,trials:3000,seed:20261116};
  render();
  if(!tradeProbability.baseline.length)void request('/api/probabilistic/latest').then(({job})=>{
   if(version!==tradeProbability.version||tradeProbability.key!==tradeProbabilityKey())return;
@@ -70,11 +70,11 @@ function probabilityParams(){
  const custom={};
  if(s.rosterMode==='top_n')for(const team of teams)custom[team.team_id]=selected(team.team_id).map(p=>p.name).sort();
  return {period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,
-  custom_rosters:custom,punt_categories:[...punts()].sort(),trials:10000,seed:20261116};
+  custom_rosters:custom,punt_categories:[...punts()].sort(),...(injuryMode()?{punt_team_id:myTeam}:{}),trials:10000,seed:20261116};
 }
 function probabilitySettingsKey(p){return JSON.stringify([p.period,p.simulation_mode,p.top_n_players,
  Object.entries(p.custom_rosters??{}).sort(([a],[b])=>+a-+b).map(([k,names])=>[String(k),[...names].sort()]),
- [...(p.punt_categories??[])].sort(),p.trials,p.seed]);}
+ [...(p.punt_categories??[])].sort(),p.punt_team_id??null,p.trials,p.seed]);}
 function probabilityMatchesCurrent(params){return !!params&&probabilitySettingsKey(params)===probabilitySettingsKey(probabilityParams());}
 function probabilityCurrentResult(){return probabilityMatchesCurrent(probability.params)?probability.result:null;}
 function probabilityAccept(job){
@@ -129,7 +129,7 @@ async function probabilityRun(){
 function probabilityAuto(){
  if(!probabilityEnabled())return;
  if(!probability.restored||probability.restoring||probability.busy||probability.error)return;
- const refresh=resource('/api/refresh-status',60000);
+ const refresh=resource(refreshStatusPath(),60000);
  if(refresh.pending)return;
  const params=probabilityParams(),key=probabilitySettingsKey(params);
  const stamp=refresh.data?.data_version??refresh.data?.last_refresh_time??'';
@@ -261,7 +261,7 @@ function probabilityMaintain(){
  probabilityAuto();
  if(!probability.refreshTimer)probability.refreshTimer=setTimeout(()=>{
   probability.refreshTimer=null;
-  if(s.page==='simulations'&&s.simMode==='probabilistic'||s.page==='team'&&s.tab==='categories'&&s.categoryMode==='probability'){cache.delete('/api/refresh-status');render();}
+  if(s.page==='simulations'&&s.simMode==='probabilistic'||s.page==='team'&&s.tab==='categories'&&s.categoryMode==='probability'){cache.delete(refreshStatusPath());render();}
  },60000);
  return currentResult;
 }

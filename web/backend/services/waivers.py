@@ -8,9 +8,10 @@ from core.projection import (
     get_remaining_scoring_periods,
     player_value,
     project_team_stats,
+    roster_available_on,
 )
 from core.snapshot import build_league_snapshot
-from .projections import select_projection_roster
+from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
 from core.z_score import calculate_player_z_scores, calculate_z_scores_from_players
 from core.matchup_value import combine_stats, matchup_utility, add_matchup_values
 
@@ -39,11 +40,18 @@ def recommend_free_agents(
     simulation_mode: str = "all",
     top_n_players: int = 13,
     custom_team_players=(),
+    punt_team_id=None,
 ):
-    snapshot = build_league_snapshot(league_metadata, period)
+    snapshot = build_league_snapshot(league_metadata, period, **projection_snapshot_options(simulation_mode))
+    injury_context = projection_injury_context(league_metadata, snapshot, simulation_mode,
+        punt_team_id=punt_team_id, punt_categories=punt_categories)
+    if injury_context:
+        punt_categories = injury_context.punts_for(team_id)
+    roster_pool = [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(team_id)]
     roster = select_projection_roster(
-        [{**player.as_projection_player(), 'future_only': True} for player in snapshot.team_players(team_id)],
+        roster_pool,
         simulation_mode, top_n_players, custom_team_players,
+        injury_context=injury_context, team_id=team_id,
     )
     if not roster:
         raise ValueError("Team not found or roster is empty")
@@ -60,9 +68,10 @@ def recommend_free_agents(
     if box:
         opponent_players = select_projection_roster(
             [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(box['opponent_id'])],
-            simulation_mode, top_n_players,
+            simulation_mode, top_n_players, injury_context=injury_context, team_id=box['opponent_id'],
         )
-        _, opponent_future, _ = _lineup_projection(opponent_players, scoring_periods, punt_categories, snapshot.active_slots)
+        opponent_punts = injury_context.punts_for(box['opponent_id']) if injury_context else punt_categories
+        _, opponent_future, _ = _lineup_projection(opponent_players, scoring_periods, opponent_punts, snapshot.active_slots)
         opponent_box = league_metadata.get_matchup_box_score(matchup_period, box['opponent_id'])
         if opponent_box:
             opponent = combine_stats(opponent_box['totals'], opponent_future)
@@ -95,6 +104,7 @@ def recommend_free_agents(
             "available": True,
             "injured": getattr(player, "injured", False),
             "injury_status": getattr(player, "injuryStatus", "ACTIVE"),
+            "expected_return_date": getattr(player, "expected_return_date", None),
             "nba_team": getattr(player, "proTeam", "N/A"),
             "future_only": True,
         }
@@ -106,17 +116,23 @@ def recommend_free_agents(
     season_players = league_metadata.get_all_players_stats(f'{league_metadata.year}_total', 'avg')
     season_metrics = calculate_z_scores_from_players(season_players)['league_metrics'] if season_players else snapshot.league_metrics
     season_values = {p['name']: sum(calculate_player_z_scores(p['stats'], season_metrics).get(c, 0) for c in CATEGORIES if c not in punt_categories) for p in season_players}
-    ordered = sorted(roster, key=lambda p: season_values.get(p['name'], player_value(p, punt_categories)), reverse=True)
+    active = ([p for p in roster if roster_available_on(p, injury_context.as_of) and not p.get('activated_on')]
+              if injury_context else roster)
+    ordered = sorted(active, key=lambda p: season_values.get(p['name'], player_value(p, punt_categories)), reverse=True)
     protected = {p['name'] for p in ordered[:len(ordered) // 2]}
-    drop_pool = [p for p in roster if p['available'] and not p.get('injured') and p['name'] not in protected]
+    drop_pool = [p for p in active if p['available'] and p.get('droppable', True)
+                 and not p.get('injured') and p['name'] not in protected]
     baseline_fit = matchup_utility(combine_stats(accrued, baseline_stats), opponent, punt_categories) if opponent is not None else baseline_value
 
     recommendations = []
     for candidate in candidates:
         best = None
         for dropped in drop_pool:
-            changed_roster = [player for player in roster if player["name"] != dropped["name"]]
+            changed_roster = [player for player in (roster_pool if injury_context else roster)
+                              if player["name"] != dropped["name"]]
             changed_roster.append(candidate)
+            if injury_context:
+                changed_roster, _ = injury_context.plan(changed_roster, team_id)
             value, projected_stats, selected_games = _lineup_projection(
                 changed_roster, scoring_periods, punt_categories, snapshot.active_slots, opponent, accrued
             )

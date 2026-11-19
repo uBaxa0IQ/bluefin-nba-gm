@@ -14,6 +14,7 @@ class TradeAnalysisRequest(BaseModel):
     i_receive: List[str]
     period: str = DEFAULT_PERIOD
     punt_categories: List[str] = []
+    punt_team_id: int | None = None
     scope_mode: str = "team"  # "team" или "trade"
     simulation_mode: str = "all"  # "all", "exclude_ir" или "top_n"
     top_n_players: int = 13
@@ -49,6 +50,7 @@ class MultiTeamTradeRequest(BaseModel):
     trades: List[TeamTrade]  # Список команд и их трейдов
     period: str = DEFAULT_PERIOD
     punt_categories: List[str] = []
+    punt_team_id: int | None = None
     simulation_mode: str = "all"  # "all", "exclude_ir" или "top_n"
     top_n_players: int = 13
     custom_team_players: Optional[Dict[int, List[str]]] = None

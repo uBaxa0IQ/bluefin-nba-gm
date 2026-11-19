@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 from datetime import datetime, timedelta, timezone
+from .injuries import nba_date
 
 
 DEFAULT_LINEUP_SLOTS: Tuple[str, ...] = (
@@ -49,14 +50,31 @@ def player_value(player: Dict[str, Any], punt_categories: Iterable[str] = ()) ->
     )
 
 
+def roster_available_on(player, day):
+    if not player.get('available', True):
+        return False
+    start, end = player.get('available_from'), player.get('available_until')
+    return (start is None or day is not None and day >= start) and (
+        end is None or day is not None and day < end)
+
+
 def has_game(player: Dict[str, Any], scoring_period: int) -> bool:
     schedule = player.get("schedule") or {}
+    if str(scoring_period) not in schedule and scoring_period not in schedule:
+        return False
+    game = schedule.get(str(scoring_period), schedule.get(scoring_period)) or {}
+    date = game.get('date') if isinstance(game, dict) else None
+    if not roster_available_on(player, nba_date(date) if 'available_from' in player or 'available_until' in player else None):
+        return False
     if player.get('future_only'):
-        game = schedule.get(str(scoring_period), schedule.get(scoring_period)) or {}
-        date = game.get('date')
-        if isinstance(date, datetime) and date <= datetime.now(date.tzinfo):
-            return False
-    return str(scoring_period) in schedule or scoring_period in schedule
+        if isinstance(date, datetime):
+            as_of = player.get('as_of')
+            if as_of is not None:
+                if date.astimezone() <= as_of.astimezone():
+                    return False
+            elif date <= datetime.now(date.tzinfo):
+                return False
+    return True
 
 
 def optimize_daily_lineup(

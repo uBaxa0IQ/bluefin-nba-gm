@@ -2,16 +2,17 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import json
-import re
 from threading import Lock
 from time import monotonic
 from urllib.request import Request, urlopen
 from fastapi import APIRouter, Depends, HTTPException, Query
 from dependencies import get_league_meta
 from core.config import DEFAULT_PERIOD, YEAR
+from core.injuries import INJURY_MODE, load_injury_report, nba_date
 from core.snapshot import build_league_snapshot
-from core.projection import build_matchup_lineups, get_matchup_scoring_periods, has_game
-from services.projections import select_projection_roster
+from core.roster_rules import static_roster_mode
+from core.projection import build_matchup_lineups, get_matchup_scoring_periods, get_remaining_scoring_periods, has_game, roster_available_on
+from services.projections import injury_roster_today, projection_injury_context, projection_snapshot_options, select_projection_roster
 from services.season import project_regular_season
 from dataclasses import replace
 from fastapi import Request as FastAPIRequest
@@ -25,15 +26,16 @@ router = APIRouter(prefix='/api/bluefin', tags=['bluefin'])
 _cache, _lock, _pool = {}, Lock(), ThreadPoolExecutor(max_workers=4)
 
 
-def season_result(meta, period, mode, count, custom_rosters, punts):
-    key = ('season', period, mode, count, analytics_version(meta),
-           tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts))
+def season_result(meta, period, mode, count, custom_rosters, punts, punt_team_id=None):
+    key = ('season', period, mode, count, analytics_version(meta, injury_aware=True) if mode == INJURY_MODE else analytics_version(meta),
+           tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts), punt_team_id)
     with _lock:
         hit = _cache.get(key)
         if hit:
             return hit[1]
     result = project_regular_season(meta, period, simulation_mode=mode, top_n_players=count,
-                                    custom_rosters=custom_rosters, punt_categories=punts, record_forecasts=False)
+                                    custom_rosters=custom_rosters, punt_categories=punts, record_forecasts=False,
+                                    punt_team_id=punt_team_id)
     with _lock:
         if len(_cache) >= 128:
             _cache.clear()
@@ -44,7 +46,7 @@ def season_result(meta, period, mode, count, custom_rosters, punts):
 @router.get('/season')
 def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_players: int = 13,
            custom_team_id: int | None = None, custom_team_players: str = '', punt_categories: str = '', custom_rosters: str = '',
-           meta=Depends(get_league_meta)):
+           meta=Depends(get_league_meta), punt_team_id: int | None = None):
     custom = {custom_team_id: custom_team_players.split(',')} if custom_team_id and custom_team_players else {}
     if custom_rosters:
         try:
@@ -54,12 +56,15 @@ def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_p
             custom.update({int(k): v for k, v in parsed.items()})
         except (ValueError, TypeError):
             raise HTTPException(422, 'Неверный состав')
-    return season_result(meta, period, simulation_mode, top_n_players, custom, tuple(filter(None, punt_categories.split(','))))
+    return season_result(meta, period, simulation_mode, top_n_players, custom,
+                         tuple(filter(None, punt_categories.split(','))), punt_team_id)
 
 
 @router.post('/trade')
 def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends(get_league_meta)):
-    key = ('trade', analytics_version(meta), digest(body.model_dump()))
+    injury_aware = body.simulation_mode == INJURY_MODE
+    version = analytics_version(meta, injury_aware=True) if injury_aware else analytics_version(meta)
+    key = ('trade', version, digest(body.model_dump()))
     with _lock:
         hit = _cache.get(key)
         if hit:
@@ -67,14 +72,16 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
     from routers.trades import analyze_trade
     result = analyze_trade(body, http_request, meta)
     custom = body.custom_team_players or {}
-    before = season_result(meta, body.period, body.simulation_mode, body.top_n_players, custom, tuple(body.punt_categories))
-    snapshot = build_league_snapshot(meta, body.period)
+    before = season_result(meta, body.period, body.simulation_mode, body.top_n_players, custom,
+                           tuple(body.punt_categories), body.punt_team_id)
+    snapshot = build_league_snapshot(meta, body.period, **projection_snapshot_options(body.simulation_mode))
     moved = []
     for player in snapshot.players:
         destination = (body.their_team_id if player.fantasy_team_id == body.my_team_id and player.name in body.i_give else
                        body.my_team_id if player.fantasy_team_id == body.their_team_id and player.name in body.i_receive else None)
         team = meta.get_team_by_id(destination) if destination else None
-        moved.append(replace(player, fantasy_team_id=destination, fantasy_team_name=team.team_name) if team else player)
+        moved.append(replace(player, fantasy_team_id=destination, fantasy_team_name=team.team_name,
+                             lineup_slot='BE' if injury_aware else player.lineup_slot) if team else player)
     after_snapshot = replace(snapshot, players=tuple(moved))
     after_custom = dict(custom)
     for team_id, give, receive in ((body.my_team_id, body.i_give, body.i_receive), (body.their_team_id, body.i_receive, body.i_give)):
@@ -83,7 +90,7 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
                 [p.as_projection_player() for p in after_snapshot.team_players(team_id)], body.top_n_players, body.punt_categories)
     after = project_regular_season(meta, body.period, simulation_mode=body.simulation_mode,
         top_n_players=body.top_n_players, snapshot_override=after_snapshot, custom_rosters=after_custom,
-        punt_categories=body.punt_categories, record_forecasts=False)
+        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id)
     before_places = {t['team_id']: t['projected_position'] for t in before['standings']}
     after_places = {t['team_id']: t['projected_position'] for t in after['standings']}
     result['simulation_ranks']['calendar'] = {key: {'before': before_places[team_id], 'after': after_places[team_id]}
@@ -112,34 +119,9 @@ def espn(url, ttl=600):
     return data
 
 
-def health_record(item):
-    athlete, details = item.get('athlete') or {}, item.get('details') or {}
-    player_id = athlete.get('id')
-    for link in athlete.get('links', []) if not player_id else []:
-        match = re.search(r'/id/(\d+)', link.get('href', ''))
-        if match:
-            player_id = match[1]
-            break
-    text = ' '.join(str(item.get(k) or '') for k in ('longComment', 'shortComment')).lower()
-    season_out = bool(re.search(r'season[- ]ending|out for (?:the|this) season|miss (?:the )?(?:entire|rest of|remainder of) (?:the )?(?:\d{4}[-/]\d{2,4} )?season|won.t (?:play|return)[^.]*?(?:this|the) season', text))
-    return_date, long_term = details.get('returnDate'), season_out
-    if return_date:
-        try:
-            long_term |= (datetime.fromisoformat(return_date[:10]).date() - datetime.now(timezone.utc).date()).days >= 30
-        except ValueError:
-            pass
-    status = item.get('status', '').lower()
-    return {'player_id': int(player_id) if player_id else None, 'name': athlete.get('displayName'),
-            'injury_status': 'OUT' if status == 'out' else 'DTD' if status in ('day-to-day', 'questionable', 'doubtful') else status.upper() or 'UNKNOWN',
-            'expected_return_date': return_date, 'out_for_season': season_out, 'long_term': bool(long_term),
-            'injury_detail': details.get('type'), 'injury_updated_at': item.get('date')}
-
-
 @router.get('/injuries')
 def injuries():
-    data = espn('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries')
-    return {'players': [health_record(i) for team in data.get('injuries', []) for i in team.get('injuries', [])],
-            'updated_at': data.get('timestamp')}
+    return load_injury_report()
 
 
 @router.get('/roster-meta')
@@ -149,6 +131,16 @@ def roster_meta(meta=Depends(get_league_meta)):
                          'injury_status': getattr(p, 'injuryStatus', 'ACTIVE'),
                          'expected_return_date': getattr(p, 'expected_return_date', None)}
                         for team in meta.get_teams() for p in meta.get_team_roster(team.team_id)]}
+
+
+@router.get('/active-rosters')
+def active_rosters(period: str = DEFAULT_PERIOD, punt_categories: str = '',
+                   punt_team_id: int | None = None, meta=Depends(get_league_meta)):
+    rosters = {t.team_id: [] for t in meta.get_teams()}
+    for row in injury_roster_today(meta, period, punt_team_id=punt_team_id,
+                                  punt_categories=tuple(filter(None, punt_categories.split(',')))):
+        rosters[row['team_id']].append(row['name'])
+    return {'rosters': rosters}
 
 
 @router.get('/matchups')
@@ -241,6 +233,7 @@ def team_form(team_id: int, simulation_mode: str = 'top_n', top_n_players: int =
     from core.config import PERIODS
     names, excluded = set(filter(None, custom_team_players.split(','))), set(filter(None, punt_categories.split(',')))
     result = []
+    simulation_mode = static_roster_mode(simulation_mode)
     for key in ('total', 'last_30', 'last_15', 'last_7'):
         data = calculate_z_scores(meta, PERIODS[key], exclude_ir=simulation_mode == 'exclude_ir')
         ps = [p for p in data['players'] if p['team_id'] == team_id]
@@ -254,13 +247,23 @@ def team_form(team_id: int, simulation_mode: str = 'top_n', top_n_players: int =
 @router.get('/calendar/{team_id}')
 def calendar(team_id: int, week: int = Query(ge=1), period: str = DEFAULT_PERIOD,
              simulation_mode: str = 'top_n', top_n_players: int = 13,
-             custom_team_players: str = '', punt_categories: str = '', meta=Depends(get_league_meta)):
-    snapshot = build_league_snapshot(meta, period)
+             custom_team_players: str = '', punt_categories: str = '', meta=Depends(get_league_meta),
+             punt_team_id: int | None = None):
+    snapshot = build_league_snapshot(meta, period, **projection_snapshot_options(simulation_mode))
+    punts = tuple(filter(None, punt_categories.split(',')))
+    injury_context = projection_injury_context(meta, snapshot, simulation_mode,
+        punt_team_id=punt_team_id, punt_categories=punts)
+    timeline = {}
     ps = select_projection_roster([p.as_projection_player() for p in snapshot.team_players(team_id)], simulation_mode,
-                                  top_n_players, tuple(filter(None, custom_team_players.split(','))))
-    days = get_matchup_scoring_periods(meta.league, week)
+                                  top_n_players, tuple(filter(None, custom_team_players.split(','))),
+                                  injury_context=injury_context, team_id=team_id, timeline=timeline)
+    if injury_context and week == snapshot.current_matchup_period:
+        days = get_remaining_scoring_periods(meta.league, week)
+        ps = [{**p, 'future_only': True, 'as_of': snapshot.created_at} for p in ps]
+    else:
+        days = get_matchup_scoring_periods(meta.league, week)
     lineups = build_matchup_lineups(ps, days, slots=snapshot.active_slots,
-                                  punt_categories=tuple(filter(None, punt_categories.split(','))))
+                                  punt_categories=injury_context.punts_for(team_id) if injury_context else punts)
     dates = {}
     for team_games in (getattr(meta.league, 'pro_schedule', {}) or {}).values():
         for day, games in team_games.items():
@@ -291,4 +294,10 @@ def calendar(team_id: int, week: int = Query(ge=1), period: str = DEFAULT_PERIOD
                                   'opponent': opponents.get((dates.get(day['scoring_period']), team_abbreviations.get(p['name']))),
                                   'game': (p.get('schedule') or {}).get(str(day['scoring_period']), (p.get('schedule') or {}).get(day['scoring_period']))}
                                  for p in ps]})
-    return {'team_id': team_id, 'week': week, 'days': grid, 'selected_games': lineups['selected_games']}
+    result = {'team_id': team_id, 'week': week, 'days': grid, 'selected_games': lineups['selected_games']}
+    if injury_context:
+        game_dates = [nba_date(dates[day]) for day in days if day in dates]
+        result['roster_players'] = [p['name'] for p in ps
+                                    if any(roster_available_on(p, day) for day in game_dates)]
+        result['roster_timeline'] = timeline
+    return result

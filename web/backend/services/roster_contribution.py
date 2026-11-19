@@ -8,6 +8,7 @@ from core.monte_carlo import simulate_seasons
 from .monte_carlo import prepare_season
 from .game_history import build_distributions
 from .probability_jobs import ProbabilityJobs, ROOT
+from .projections import projection_snapshot_options
 
 
 def without_player(weeks, team_id, player_id):
@@ -49,12 +50,12 @@ def contribution_row(player, baseline, removed, games):
 def run_contribution(metadata, params, progress):
     started = perf_counter()
     team_id = params['team_id']
-    snapshot = build_league_snapshot(metadata, params['period'])
+    snapshot = build_league_snapshot(metadata, params['period'], **projection_snapshot_options(params['simulation_mode']))
     roster = snapshot.team_players(team_id)
     progress('calendar', 0, len(roster))
     prepared = prepare_season(metadata, params['period'], simulation_mode=params['simulation_mode'],
         top_n_players=params['top_n_players'], custom_rosters=params['custom_rosters'],
-        punt_categories=params['punt_categories'], snapshot=snapshot)
+        punt_categories=params['punt_categories'], snapshot=snapshot, punt_team_id=params.get('punt_team_id'))
     distributions, _ = build_distributions(prepared['players'], metadata.year,
         ROOT / '.cache' / 'monte_carlo' / 'game_logs', as_of=datetime.fromisoformat(prepared['metadata']['as_of']),
         progress=lambda done, total: progress('histories', done, total))

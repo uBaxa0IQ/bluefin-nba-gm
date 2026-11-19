@@ -17,7 +17,7 @@ const result = {
     }] }],
 };
 
-async function setup(page, { failNext = false } = {}) {
+async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [] } = {}) {
     let completed = null;
     let current = null;
     let starts = 0;
@@ -35,8 +35,11 @@ async function setup(page, { failNext = false } = {}) {
         if (path === '/api/all-players') return route.fulfill({ json: { players: [
             { player_id: 11, name: 'Player A', fantasy_team_id: 1, team_id: 1, position: 'PG', stats: { PTS: 10 }, z_scores: { PTS: 1 } },
             { player_id: 22, name: 'Player B', fantasy_team_id: 2, team_id: 2, position: 'PG', stats: { PTS: 9 }, z_scores: { PTS: .5 } },
+            ...extraPlayers,
         ] } });
-        if (path === '/api/bluefin/roster-meta' || path === '/api/bluefin/injuries') return route.fulfill({ json: { players: [] } });
+        if (path === '/api/bluefin/roster-meta') return route.fulfill({ json: { players: rosterMeta } });
+        if (path === '/api/bluefin/injuries') return route.fulfill({ json: { players: [] } });
+        if (path === '/api/bluefin/season') return route.fulfill({ json: { standings: [] } });
         if (path === '/api/refresh-status') return route.fulfill({ json: { last_refresh_time: '2026-11-16T14:00:00Z' } });
         if (path === '/api/probabilistic/latest') return route.fulfill({ json: { job: completed } });
         if (path === '/api/probabilistic/jobs') {
@@ -91,8 +94,77 @@ test('migrates the saved full roster to exclude IR', async ({ page }) => {
     await page.locator('button[data-action="settings"]').click();
     const select = page.locator('[data-control="rosterMode"]');
     await expect(select).toHaveValue('exclude_ir');
-    await expect(select.locator('option')).toHaveCount(2);
+    await expect(select.locator('option')).toHaveCount(3);
     await expect(select.locator('option[value="all"]')).toHaveCount(0);
+});
+
+test('injury mode persists and sends punts only for the selected main team', async ({ page }) => {
+    await page.addInitScript(() => {
+        const key = 'bluefin-live-v1:123:2027';
+        if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ punts: ['PTS'], puntsEnabled: true }));
+    });
+    const calls = await setup(page);
+    await page.locator('button[data-action="settings"]').click();
+    await page.locator('[data-control="mainTeam"]').selectOption('2');
+    const select = page.locator('[data-control="rosterMode"]');
+    await expect(select.locator('option[value="injury_aware"]')).toHaveText('С учётом травм');
+    await select.selectOption('injury_aware');
+    await page.locator('[data-action="close"]').click();
+    await expect.poll(() => calls.at(-1)).toMatchObject({
+        simulation_mode: 'injury_aware', punt_team_id: 2, punt_categories: ['PTS'], custom_rosters: {},
+    });
+    await page.locator('body').press('Shift+P');
+    await expect.poll(() => calls.at(-1)).toMatchObject({
+        simulation_mode: 'injury_aware', punt_team_id: 2, punt_categories: [],
+    });
+    await expect(page.locator('.bf-prob-matrix tbody tr')).toHaveCount(2);
+    await page.reload();
+    await page.locator('button[data-action="settings"]').click();
+    await expect(select).toHaveValue('injury_aware');
+});
+
+test('league averages and Z keep ordinary-slot OUT players and exclude actual IR', async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem('bluefin-live-v1:123:2027', JSON.stringify({ rosterMode: 'injury_aware' }));
+    });
+    await setup(page, {
+        extraPlayers: [{ player_id: 33, name: 'Player IR', fantasy_team_id: 1, position: 'C', stats: { PTS: 50 }, z_scores: { PTS: 5 } }],
+        rosterMeta: [{ player_id: 11, injury_status: 'OUT' }, { player_id: 33, is_ir: true }],
+    });
+    await page.locator('[data-page="league"]').click();
+    await page.locator('[data-set="matrix"][data-value="value"]').click();
+    const points = page.locator('.bf-matrix tbody tr').filter({ hasText: 'Team A' }).locator('td').nth(1);
+    await expect(points).toHaveText(/^10(?:\.0+)?$/);
+    await page.locator('[data-set="matrixSource"][data-value="z"]').click();
+    await expect(points).toHaveText('1.00');
+});
+
+test('team overview keeps seven rows and includes OUT players in ordinary slots', async ({ page }) => {
+    await page.addInitScript(() => {
+        localStorage.setItem('bluefin-live-v1:123:2027', JSON.stringify({ rosterMode: 'injury_aware' }));
+    });
+    await setup(page, {
+        extraPlayers: Array.from({ length: 8 }, (_, i) => ({
+            player_id: 30 + i, name: i === 7 ? 'Player IR' : 'Roster player ' + (i + 1),
+            fantasy_team_id: 1, position: 'C', stats: { PTS: 5 }, z_scores: { PTS: .1 },
+        })),
+        rosterMeta: [{ player_id: 11, injury_status: 'OUT' }, { player_id: 37, is_ir: true }],
+    });
+    await page.route('**/api/bluefin/active-rosters?**', route => route.fulfill({
+        json: { rosters: { 1: Array.from({ length: 7 }, (_, i) => 'Roster player ' + (i + 1)) } },
+    }));
+    await page.locator('header [data-page="team"]').first().click();
+    const overview = page.locator('.bf-team-profile table tbody');
+    await expect(page.locator('.pe-metrics')).toContainText('7 / 9');
+    await expect(overview.locator('tr')).toHaveCount(7);
+    await expect(overview).toContainText('Player A');
+    await expect(overview).not.toContainText('Player IR');
+    await expect(page.getByRole('button', { name: 'Все игроки · 9' })).toBeVisible();
+    await page.getByRole('button', { name: 'Все игроки · 9' }).click();
+    const roster = page.locator('.pe-main table tbody');
+    await expect(roster.locator('tr')).toHaveCount(9);
+    await expect(roster).toContainText('Player A');
+    await expect(roster).toContainText('Player IR');
 });
 
 test('failed recalculation never presents a result for different settings', async ({ page }) => {
