@@ -100,7 +100,7 @@ function App() {
 
   const [simulationMode, setSimulationMode] = useState(() => {
     const saved = localStorage.getItem('simulationMode');
-    return saved || 'top_n';
+    return saved === 'all' || saved === 'exclude_ir' ? 'exclude_ir' : 'top_n';
   });
 
   const [mainTeam, setMainTeam] = useState(() => {

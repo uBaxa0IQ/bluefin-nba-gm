@@ -10,7 +10,9 @@ Draft simulations and draft ML are separate and remain available.
 - `top_n`: use the explicit `custom_team_players` selection, including selected IR
   players. Without a manual selection, take the top `top_n_players` by total Z.
 - `exclude_ir`: use all rostered players except those in the IR slot.
-- `all`: use every rostered player, including IR.
+
+Saved browser settings for the former full-roster option migrate to `exclude_ir`.
+API callers can still request `all` explicitly to include every rostered player.
 
 OUT, DTD, other injury statuses and expected return dates never remove a selected
 player from a calendar forecast. This is a scenario in which the chosen roster

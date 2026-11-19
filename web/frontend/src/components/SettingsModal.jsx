@@ -392,7 +392,6 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialSettings, seasonConfig 
                                 value={simulationMode}
                                 onChange={event => setSimulationMode(event.target.value)}
                             >
-                                <option value="all">Весь текущий ростер</option>
                                 <option value="exclude_ir">Без игроков в IR</option>
                                 <option value="top_n">Выбранные игроки / лучшие 13</option>
                             </select>

@@ -29,7 +29,7 @@ const link=(label,page,pid)=>`<a class="pe-name" href="#${page}/${encodeURICompo
 function tabs(items,key){return `<div class="pe-tabs">${items.map(([v,l])=>`<button data-set="${key}" data-value="${v}" aria-pressed="${s[key]===v}">${l}</button>`).join('')}</div>`;}
 function segment(items,key){return `<div class="pe-segment">${items.map(([v,l])=>`<button data-set="${key}" data-value="${v}" aria-pressed="${s[key]===v}">${l}</button>`).join('')}</div>`;}
 function teamOptions(v,exclude=null){return teams.filter(t=>t.team_id!==exclude).map(t=>`<option value="${t.team_id}" ${+v===t.team_id?'selected':''}>${E(t.team_name)}</option>`).join('');}
-function selected(team){const ps=roster(team);if(s.rosterMode==='exclude_ir')return ps.filter(p=>!p.is_ir);if(s.rosterMode==='all')return ps;return s.picks[team]?ps.filter(p=>s.picks[team].includes(p.name)):sorted(ps).slice(0,13);}
+function selected(team){const ps=roster(team);if(s.rosterMode==='exclude_ir')return ps.filter(p=>!p.is_ir);return s.picks[team]?ps.filter(p=>s.picks[team].includes(p.name)):sorted(ps).slice(0,13);}
 const total=(team,c)=>sum(selected(team),p=>p.z_scores?.[c]);
 function raw(team,c){const ss=k=>sum(selected(team),p=>p.stats?.[k]);const ratio={'FG%':['FGM','FGA'],'FT%':['FTM','FTA'],'3PT%':['3PM','3PA'],'A/TO':['AST','TO']}[c];return ratio?(ss(ratio[1])?ss(ratio[0])/ss(ratio[1]):c==='A/TO'?ss('AST'):0):ss(c);}
 function categoryRank(team,c){const v=raw(team,c),reverse=settings.season.reverse_categories.includes(c);return 1+teams.filter(t=>reverse?raw(t.team_id,c)<v:raw(t.team_id,c)>v).length;}

@@ -1,3 +1,3 @@
 function numberTone(value){if(!finite(value)||s.coloring==='none')return '';return `color:${value<0?'#80552e':'#2948ad'}`;}
-function leagueSelected(team){const ps=roster(team);if(s.rosterMode==='exclude_ir')return ps.filter(p=>!p.is_ir);if(s.rosterMode==='all')return ps;return s.picks[team]?ps.filter(p=>s.picks[team].includes(p.name)):[...ps].sort((a,b)=>z0(b)-z0(a)).slice(0,13);}
+function leagueSelected(team){const ps=roster(team);if(s.rosterMode==='exclude_ir')return ps.filter(p=>!p.is_ir);return s.picks[team]?ps.filter(p=>s.picks[team].includes(p.name)):[...ps].sort((a,b)=>z0(b)-z0(a)).slice(0,13);}
 function leagueRaw(team,c){const ss=k=>sum(leagueSelected(team),p=>p.stats?.[k]),ratio={'FG%':['FGM','FGA'],'FT%':['FTM','FTA'],'3PT%':['3PM','3PA'],'A/TO':['AST','TO']}[c];return ratio?(ss(ratio[1])?ss(ratio[0])/ss(ratio[1]):c==='A/TO'?ss('AST'):0):ss(c);}

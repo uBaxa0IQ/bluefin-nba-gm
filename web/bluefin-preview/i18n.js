@@ -2,7 +2,7 @@ function uiLocale(){return s.lang==='en'?'en-US':'ru-RU';}
 const UI_EN={
  'Команда':'Team','Лига':'League','Игроки':'Players','Матчапы':'Matchups','Обмены':'Trades','Симуляции':'Simulations','Настройки':'Settings','Закрыть':'Close',
  'Период':'Period','Состав':'Roster','Сезон':'Season','30 дней':'30 days','15 дней':'15 days','7 дней':'7 days','Взвешенный':'Weighted','Прогноз':'Projection',
- '13 выбранных':'13 selected','Без IR':'Exclude IR','Весь состав':'Full roster','Панты':'Punts','Колонки':'Columns','Статистика':'Statistics','Средние':'Averages','Сравнить':'Compare','Сравнить с…':'Compare with…',
+ '13 выбранных':'13 selected','Без IR':'Exclude IR','Панты':'Punts','Колонки':'Columns','Статистика':'Statistics','Средние':'Averages','Сравнить':'Compare','Сравнить с…':'Compare with…',
  'Фильтр':'Filter','Свободные агенты':'Free agents','Игроки лиги':'League players','Найти игрока':'Find player','Все позиции':'All positions','Позиция':'Position','Игрок':'Player',
  'Загрузка…':'Loading…','Подключаем лигу…':'Connecting to league…','Обновляем статистику…':'Updating statistics…','Повторить':'Retry','Нет данных':'No data','Игроков нет':'No players',
  'Фильтр свободных агентов':'Free agent filters','Скрыть игроков без NBA-команды':'Hide players without an NBA team','Скрыть выбывших на сезон / 30+ дней':'Hide season-ending / 30+ day absences',

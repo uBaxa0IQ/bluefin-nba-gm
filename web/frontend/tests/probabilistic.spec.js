@@ -80,11 +80,26 @@ test('automatically calculates 10000 runs, drills down and restores after reload
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('migrates the saved full roster to exclude IR', async ({ page }) => {
+    await page.addInitScript(() => {
+        const key = 'bluefin-live-v1:123:2027';
+        if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ rosterMode: 'all' }));
+    });
+    const calls = await setup(page);
+    expect(calls[0].simulation_mode).toBe('exclude_ir');
+    expect(calls[0].custom_rosters).toEqual({});
+    await page.locator('button[data-action="settings"]').click();
+    const select = page.locator('[data-control="rosterMode"]');
+    await expect(select).toHaveValue('exclude_ir');
+    await expect(select.locator('option')).toHaveCount(2);
+    await expect(select.locator('option[value="all"]')).toHaveCount(0);
+});
+
 test('failed recalculation never presents a result for different settings', async ({ page }) => {
     const calls = await setup(page, { failNext: true });
     await expect(page.locator('.bf-prob-matrix tbody tr')).toHaveCount(2);
     await page.locator('button[data-action="settings"]').click();
-    await page.locator('[data-control="rosterMode"]').selectOption('all');
+    await page.locator('[data-control="rosterMode"]').selectOption('exclude_ir');
     await page.locator('[data-action="close"]').click();
     await expect(page.getByRole('alert')).toContainText('Попробуйте позже');
     await expect(page.locator('.bf-prob-matrix')).toHaveCount(0);
@@ -92,7 +107,7 @@ test('failed recalculation never presents a result for different settings', asyn
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect.poll(() => calls.length).toBe(3);
     expect(calls.every(p => p.trials === 10000)).toBe(true);
-    expect(calls[1].simulation_mode).toBe('all');
+    expect(calls[1].simulation_mode).toBe('exclude_ir');
     await expect(page.locator('.bf-prob-stale')).toHaveCount(0);
 });
 
@@ -244,7 +259,7 @@ test('roster contribution streams rows, opens details and drops results after a 
     await page.locator('[data-action="close"]').click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.getByRole('button', { name: /Настройки/ }).click();
-    await page.locator('[data-control="rosterMode"]').selectOption('all');
+    await page.locator('[data-control="rosterMode"]').selectOption('exclude_ir');
     await expect.poll(() => calls).toBe(2);
     await expect(page.locator('.bf-contribution-detail')).toHaveCount(0);
 });
