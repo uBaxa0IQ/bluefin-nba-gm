@@ -82,11 +82,12 @@ def load_games(player_id, season, cache_dir, *, offline=False):
 
 def build_distributions(players, season, cache_dir, *, as_of=None, offline=False,
                         half_life_games=20, max_games=60, min_games=8, workers=6,
-                        progress=None):
+                        progress=None, excluded_events=()):
     """Recent full game rows; prior season supplements short current histories."""
     if half_life_games <= 0 or max_games < 1 or min_games < 1:
         raise ValueError('Invalid history sampling settings')
     cutoff = as_of or datetime.now(timezone.utc)
+    excluded = set(excluded_events)
 
     def one(player):
         pid = player['player_id']
@@ -94,7 +95,8 @@ def build_distributions(players, season, cache_dir, *, as_of=None, offline=False
         counts = {}
         for year in (season, season - 1):
             games = [g for g in load_games(pid, year, cache_dir, offline=offline)
-                     if datetime.fromisoformat(g['date'].replace('Z', '+00:00')) <= cutoff]
+                     if str(g.get('event_id')) not in excluded
+                     and datetime.fromisoformat(g['date'].replace('Z', '+00:00')) <= cutoff]
             counts[str(year)] = len(games)
             rows.extend((g, year) for g in games[:max_games])
             if len(rows) >= min_games:

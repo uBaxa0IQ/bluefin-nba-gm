@@ -4,6 +4,8 @@ import math
 
 import numpy as np
 
+from .live_games import DOUBLE_DOUBLE_STATS, LiveGame
+
 COMPONENTS = ('PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'DD',
               'FGM', 'FGA', 'FTM', 'FTA', '3PA', 'TO')
 RATIOS = {'FG%': ('FGM', 'FGA'), 'FT%': ('FTM', 'FTA'),
@@ -41,6 +43,38 @@ class WeekPlan:
     games: dict[int, dict[int, int]]
     official_pairs: tuple[tuple[int, int], ...]
     actual: dict[int, dict[str, float]] = field(default_factory=dict)
+    live_games: dict[int, dict[int, LiveGame]] = field(default_factory=dict)
+
+
+def sample_remainder(distribution, game, trials, rng):
+    rows = distribution.samples[rng.choice(len(distribution.samples), trials, p=distribution.weights)]
+
+    def thin(counts):
+        return rng.binomial(np.rint(np.maximum(counts, 0)).astype(int), game.fraction)
+
+    def stat(key):
+        return rows[:, INDEX[key]]
+
+    result = np.zeros_like(rows)
+    twos = thin(stat('FGM') - stat('3PM'))
+    missed_twos = thin(stat('FGA') - stat('FGM') - (stat('3PA') - stat('3PM')))
+    threes = thin(stat('3PM'))
+    missed_threes = thin(stat('3PA') - stat('3PM'))
+    free_throws = thin(stat('FTM'))
+    result[:, INDEX['FGM']] = twos + threes
+    result[:, INDEX['FGA']] = twos + threes + missed_twos + missed_threes
+    result[:, INDEX['3PM']] = threes
+    result[:, INDEX['3PA']] = threes + missed_threes
+    result[:, INDEX['FTM']] = free_throws
+    result[:, INDEX['FTA']] = free_throws + thin(stat('FTA') - stat('FTM'))
+    result[:, INDEX['PTS']] = 2 * twos + 3 * threes + free_throws
+    for key in ('REB', 'AST', 'STL', 'BLK', 'TO'):
+        result[:, INDEX[key]] = thin(stat(key))
+    if sum(game.actual.get(k, 0) >= 10 for k in DOUBLE_DOUBLE_STATS) < 2:
+        columns = [INDEX[k] for k in DOUBLE_DOUBLE_STATS]
+        current = [game.actual.get(k, 0) for k in DOUBLE_DOUBLE_STATS]
+        result[:, INDEX['DD']] = ((result[:, columns] + current >= 10).sum(axis=1) >= 2)
+    return result
 
 
 def category_arrays(totals, categories):
@@ -148,6 +182,10 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                     else:
                         draws = rng.choice(len(distribution.samples), size=(trials, count), p=distribution.weights)
                     totals[:, team_index] += distribution.samples[draws].sum(axis=1)
+            for player_id, game in sorted(plan.live_games.get(team_id, {}).items()):
+                # A separate stream keeps paired full-game draws stable.
+                player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id, 1]))
+                totals[:, team_index] += sample_remainder(distributions[player_id], game, trials, player_rng)
         stats = category_arrays(totals, categories) * direction
         tie_stats = category_arrays(totals, [matchup_tie_category])[..., 0] if matchup_tie_category else None
         official = {frozenset(pair) for pair in plan.official_pairs}
@@ -201,7 +239,7 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                           'expected_record': {key: float(records[:, i, k].mean())
                                               for k, key in enumerate(('wins', 'losses', 'ties'))}})
     standings.sort(key=lambda t: t['expected_rank'])
-    return {'engine_version': 'calendar-bootstrap-v1', 'trials': trials, 'seed': seed,
+    return {'engine_version': 'calendar-bootstrap-v2', 'trials': trials, 'seed': seed,
             'categories': list(categories), 'playoff_teams': playoff_teams,
             'matchup_tie_category': matchup_tie_category,
             'standings': standings, 'weeks': weekly_results,
@@ -213,6 +251,7 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                  'Fixed selected rosters, calendar slots and player availability; no injury or transaction draws.'),
                 'Independent future player-games sampled as whole historical stat lines with recency weights.',
                 'Current-week actual counting totals fixed; percentages recomputed from component totals.',
+                'Verified in-progress games add simulated production only for the estimated remaining minutes.',
                 'Only official scheduled matchups change standings; other pairs are hypothetical for the same week.',
                 'Probabilities are conditional model estimates, not yet calibrated on held-out weeks.',
             ]}

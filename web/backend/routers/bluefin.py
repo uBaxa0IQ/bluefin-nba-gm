@@ -14,6 +14,7 @@ from core.roster_rules import static_roster_mode
 from core.projection import build_matchup_lineups, get_matchup_scoring_periods, get_remaining_scoring_periods, has_game, roster_available_on
 from services.projections import injury_roster_today, projection_injury_context, projection_snapshot_options, select_projection_roster
 from services.season import project_regular_season
+from services.live_matchups import current_matchup
 from dataclasses import replace
 from fastapi import Request as FastAPIRequest
 from models import TradeAnalysisRequest
@@ -27,7 +28,7 @@ _cache, _lock, _pool = {}, Lock(), ThreadPoolExecutor(max_workers=4)
 
 
 def season_result(meta, period, mode, count, custom_rosters, punts, punt_team_id=None):
-    key = ('season', period, mode, count, analytics_version(meta, injury_aware=True) if mode == INJURY_MODE else analytics_version(meta),
+    key = ('season', period, mode, count, analytics_version(meta, injury_aware=mode == INJURY_MODE, live=True),
            tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts), punt_team_id)
     with _lock:
         hit = _cache.get(key)
@@ -63,7 +64,7 @@ def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_p
 @router.post('/trade')
 def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends(get_league_meta)):
     injury_aware = body.simulation_mode == INJURY_MODE
-    version = analytics_version(meta, injury_aware=True) if injury_aware else analytics_version(meta)
+    version = analytics_version(meta, injury_aware=injury_aware, live=True)
     key = ('trade', version, digest(body.model_dump()))
     with _lock:
         hit = _cache.get(key)
@@ -72,9 +73,11 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
     from routers.trades import analyze_trade
     result = analyze_trade(body, http_request, meta)
     custom = body.custom_team_players or {}
-    before = season_result(meta, body.period, body.simulation_mode, body.top_n_players, custom,
-                           tuple(body.punt_categories), body.punt_team_id)
     snapshot = build_league_snapshot(meta, body.period, **projection_snapshot_options(body.simulation_mode))
+    current = current_matchup(meta, snapshot.current_matchup_period, snapshot.active_slots)
+    before = project_regular_season(meta, body.period, simulation_mode=body.simulation_mode,
+        top_n_players=body.top_n_players, snapshot_override=snapshot, custom_rosters=custom,
+        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current)
     moved = []
     for player in snapshot.players:
         destination = (body.their_team_id if player.fantasy_team_id == body.my_team_id and player.name in body.i_give else
@@ -90,7 +93,7 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
                 [p.as_projection_player() for p in after_snapshot.team_players(team_id)], body.top_n_players, body.punt_categories)
     after = project_regular_season(meta, body.period, simulation_mode=body.simulation_mode,
         top_n_players=body.top_n_players, snapshot_override=after_snapshot, custom_rosters=after_custom,
-        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id)
+        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current)
     before_places = {t['team_id']: t['projected_position'] for t in before['standings']}
     after_places = {t['team_id']: t['projected_position'] for t in after['standings']}
     result['simulation_ranks']['calendar'] = {key: {'before': before_places[team_id], 'after': after_places[team_id]}

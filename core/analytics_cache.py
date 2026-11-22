@@ -7,8 +7,9 @@ import time
 
 from .weighted_coefficients import load_weighted_coefficients
 from .injuries import NBA_TIMEZONE, projection_injury_report
+from .live_games import LIVE_CACHE_SECONDS, live_cache_tick
 
-CACHE_REVISION = 'analytics-v2'
+CACHE_REVISION = 'analytics-v3'
 
 
 def canonical(value):
@@ -50,7 +51,7 @@ def capture_league_inputs(metadata, raw):
     metadata.analytics_game_dates = tuple(sorted(dates))
 
 
-def analytics_version(metadata, *, stochastic=False, injury_aware=False):
+def analytics_version(metadata, *, stochastic=False, injury_aware=False, live=False):
     version = getattr(metadata, 'analytics_data_version', None)
     if version is None:
         # Adapters without a captured ESPN snapshot retain conservative invalidation.
@@ -62,7 +63,10 @@ def analytics_version(metadata, *, stochastic=False, injury_aware=False):
             (row.get('player_id'), row.get('injury_status'), row.get('expected_return_date'),
              bool(row.get('out_for_season')), row.get('injury_updated_at'))
             for row in report['players']]]
+    now = time.time()
     return digest([CACHE_REVISION, metadata.league_id, metadata.year, version,
-        load_weighted_coefficients(), bisect_right(getattr(metadata, 'analytics_game_dates', ()), time.time()),
+        load_weighted_coefficients(), bisect_right(getattr(metadata, 'analytics_game_dates', ()), now),
+        live_cache_tick(getattr(metadata, 'league', None), now, 300 if stochastic else LIVE_CACHE_SECONDS)
+        if stochastic or live else None,
         # Game-log reads have a six-hour freshness limit, independent of league refresh.
-        int(time.time() // (6 * 3600)) if stochastic else None, *injury_inputs])
+        int(now // (6 * 3600)) if stochastic else None, *injury_inputs])

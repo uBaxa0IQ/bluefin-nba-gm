@@ -87,7 +87,8 @@ def main(argv=None):
                 print(f'Game logs: {done}/{total}', flush=True)
         distributions, coverage = build_distributions(
             prepared['players'], metadata.year, ROOT / '.cache' / 'monte_carlo' / 'game_logs',
-            as_of=datetime.fromisoformat(prepared['metadata']['as_of']), workers=args.workers, progress=progress)
+            as_of=datetime.fromisoformat(prepared['metadata']['as_of']), workers=args.workers, progress=progress,
+            excluded_events=prepared['excluded_events'])
         save_inputs(args.output / 'inputs.json', prepared, distributions, coverage)
     print(f'Simulating {args.trials:,} joint seasons...', flush=True)
     result = simulate_seasons(prepared['teams'], prepared['weeks'], distributions,

@@ -186,7 +186,7 @@ def test_season_uses_accrued_score_and_only_remaining_days(monkeypatch):
     metadata = SimpleNamespace(league=league, get_teams=lambda: teams,
         get_schedule_matchups=lambda *args: [{'matchup_period': 1, 'team1_id': 1, 'team2_id': 2}],
         get_matchup_box_score=lambda week, team: {'totals': {'PTS': 100 if team == 1 else 0}})
-    monkeypatch.setattr(season, 'build_league_snapshot', lambda *args: None)
+    monkeypatch.setattr(season, 'build_league_snapshot', lambda *args: SimpleNamespace(active_slots=('PG',)))
     def project(snapshot, teams, days, **kwargs):
         assert days == [2]
         assert kwargs['future_only'] is True

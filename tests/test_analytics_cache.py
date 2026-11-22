@@ -45,3 +45,18 @@ def test_started_game_and_coefficients_invalidate_cache(monkeypatch):
     before = cache.analytics_version(meta)
     monkeypatch.setattr(cache, 'load_weighted_coefficients', lambda: {'total': .5, 'last_7': .5})
     assert cache.analytics_version(meta) != before
+
+
+def test_live_forecast_versions_refresh_without_invalidating_static_metrics(monkeypatch):
+    meta, raw = inputs()
+    game = {'date': 1800000000000, 'statsOfficial': False}
+    meta.league.pro_schedule = {1: {'1': [game]}}
+    cache.capture_league_inputs(meta, raw)
+    monkeypatch.setattr(cache.time, 'time', lambda: 1800000001)
+    initial = [cache.analytics_version(meta, **options) for options in ({}, {'live': True}, {'stochastic': True})]
+    monkeypatch.setattr(cache.time, 'time', lambda: 1800000061)
+    assert cache.analytics_version(meta) == initial[0]
+    assert cache.analytics_version(meta, live=True) != initial[1]
+    assert cache.analytics_version(meta, stochastic=True) == initial[2]
+    monkeypatch.setattr(cache.time, 'time', lambda: 1800000301)
+    assert cache.analytics_version(meta, stochastic=True) != initial[2]

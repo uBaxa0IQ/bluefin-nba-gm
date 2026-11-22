@@ -5,14 +5,13 @@ from core.injuries import INJURY_MODE
 from core.roster_timeline import InjuryContext, overall_z
 
 from core.projection import (
-    build_matchup_lineups,
     get_matchup_scoring_periods,
     get_remaining_scoring_periods,
-    project_team_stats,
 )
 from core.snapshot import build_league_snapshot
 from core.simulation import compare_category_stats, simulate_all_vs_all
 from core.matchup_value import combine_stats, add_matchup_values
+from .live_matchups import current_matchup, current_opponent, current_totals, future_lineups, future_stats
 
 
 def projection_snapshot_options(mode):
@@ -96,23 +95,31 @@ def project_team_matchup(
         scoring_periods = get_matchup_scoring_periods(league, matchup_period)
 
     opponent = None
+    current = current_matchup(league_metadata, matchup_period, snapshot.active_slots) if remaining_only else None
+    live_players = {p.player_id: p.as_projection_player() for p in snapshot.players} if current and current.confirmed else {}
+    live = current.remainders(team_id, live_players) if current else {}
     if remaining_only:
-        box = league_metadata.get_matchup_box_score(matchup_period, team_id)
-        if box:
+        opponent_id = current_opponent(league_metadata, matchup_period, team_id, current)
+        if opponent_id is not None:
             opponent_players = select_projection_roster(
-                [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(box['opponent_id'])],
-                simulation_mode, top_n_players, injury_context=injury_context, team_id=box['opponent_id'],
+                [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(opponent_id)],
+                simulation_mode, top_n_players, injury_context=injury_context, team_id=opponent_id,
             )
-            opponent_punts = injury_context.punts_for(box['opponent_id']) if injury_context else punt_categories
-            opponent_lineup = build_matchup_lineups(opponent_players, scoring_periods, snapshot.active_slots, opponent_punts)
-            opponent_box = league_metadata.get_matchup_box_score(matchup_period, box['opponent_id'])
-            if opponent_box:
-                opponent = combine_stats(opponent_box['totals'], project_team_stats(opponent_players, opponent_lineup['selected_games']))
-                baseline = build_matchup_lineups(players, scoring_periods, snapshot.active_slots, team_punts)
-                baseline_stats = combine_stats(box['totals'], project_team_stats(players, baseline['selected_games']))
+            opponent_punts = injury_context.punts_for(opponent_id) if injury_context else punt_categories
+            opponent_lineup = future_lineups(opponent_players, scoring_periods, snapshot.active_slots, opponent_punts,
+                                             current=current, team_id=opponent_id)
+            opponent_actual = current_totals(league_metadata, matchup_period, opponent_id, current)
+            if opponent_actual:
+                opponent = combine_stats(opponent_actual, future_stats(
+                    opponent_players, opponent_lineup, live_players, current.remainders(opponent_id, live_players)))
+                baseline = future_lineups(players, scoring_periods, snapshot.active_slots, team_punts,
+                                          current=current, team_id=team_id)
+                actual = current_totals(league_metadata, matchup_period, team_id, current)
+                baseline_stats = combine_stats(actual, future_stats(players, baseline, live_players, live))
                 players = add_matchup_values(players, baseline_stats, opponent, team_punts)
-    lineup = build_matchup_lineups(players, scoring_periods, slots=snapshot.active_slots, punt_categories=team_punts, fill_slots=opponent is None)
-    projected_stats = project_team_stats(players, lineup["selected_games"])
+    lineup = future_lineups(players, scoring_periods, snapshot.active_slots, team_punts,
+                            current=current, team_id=team_id, fill_slots=opponent is None)
+    projected_stats = future_stats(players, lineup, live_players, live)
 
     days = []
     for day in lineup["days"]:
@@ -144,8 +151,9 @@ def project_team_matchup(
         "days": days,
         "snapshot_created_at": snapshot.created_at.isoformat(),
         "objective": 'opponent_category_utility' if opponent is not None else 'games_then_z',
-        "note": ("Прогноз учитывает отчёт ESPN о травмах, даты активаций и прогнозные дропы."
-                 if injury_context else "Прогноз по выбранному составу: статусы травм и даты возвращения не исключают игроков. Учитываются календарь и позиции; начавшиеся игры исключены из будущей статистики."),
+        "note": ("Прогноз учитывает травмы, даты активаций и прогнозные дропы."
+                 if injury_context else "Прогноз по выбранному составу учитывает календарь и позиции.")
+                + (" Для сверенных матчей в процессе прогнозируется остаток игры." if remaining_only else ""),
         **({"roster_timeline": timeline} if injury_context else {}),
     }
 
@@ -175,6 +183,7 @@ def project_league_matchup(
         else get_matchup_scoring_periods(league, matchup_period)
     )
 
+    current = current_matchup(league_metadata, matchup_period, snapshot.active_slots) if remaining_only else None
     team_stats, team_projections = project_snapshot_for_matchup(
         snapshot,
         league_metadata.get_teams(),
@@ -183,6 +192,7 @@ def project_league_matchup(
         future_only=remaining_only,
         simulation_mode=simulation_mode, top_n_players=top_n_players,
         custom_team_id=custom_team_id, custom_team_players=custom_team_players, injury_context=injury_context,
+        current=current,
     )
 
     return {
@@ -213,17 +223,19 @@ def project_scheduled_matchups(league_metadata, period: str, matchup_period: int
     snapshot = build_league_snapshot(league_metadata, period, **projection_snapshot_options(simulation_mode))
     injury_context = projection_injury_context(league_metadata, snapshot, simulation_mode,
         punt_team_id=punt_team_id, punt_categories=punt_categories)
+    current = current_matchup(league_metadata, matchup_period, snapshot.active_slots) if remaining_only else None
     team_stats, _ = project_snapshot_for_matchup(
         snapshot, league_metadata.get_teams(), scoring_periods,
         future_only=remaining_only, simulation_mode=simulation_mode,
         top_n_players=top_n_players, custom_team_id=custom_team_id,
         custom_team_players=custom_team_players, injury_context=injury_context, punt_categories=punt_categories,
+        current=current,
     )
     if remaining_only:
         for team_id, team in team_stats.items():
-            actual = league_metadata.get_matchup_box_score(matchup_period, team_id)
+            actual = current_totals(league_metadata, matchup_period, team_id, current)
             if actual:
-                team["stats"] = combine_stats(actual["totals"], team["stats"])
+                team["stats"] = combine_stats(actual, team["stats"])
 
     categories = league_metadata.get_categories()
     reverse = league_metadata.reverse_categories
@@ -258,10 +270,11 @@ def project_scheduled_matchups(league_metadata, period: str, matchup_period: int
 def project_snapshot_for_matchup(snapshot, teams, scoring_periods, punt_categories=(), future_only=False,
                                  simulation_mode="all", top_n_players=13,
                                  custom_team_id=None, custom_team_players=(), custom_rosters=None,
-                                 injury_context=None, planned_rosters=None):
+                                 injury_context=None, planned_rosters=None, current=None):
     """Проецирует все команды из одного snapshot для заданных scoring days."""
     team_stats = {}
     team_projections = {}
+    live_players = {p.player_id: p.as_projection_player() for p in snapshot.players} if current and current.confirmed else {}
     for team in teams:
         if planned_rosters is not None:
             players = [{**p, 'future_only': future_only} for p in planned_rosters[team.team_id]]
@@ -273,8 +286,10 @@ def project_snapshot_for_matchup(snapshot, teams, scoring_periods, punt_categori
                 (custom_rosters or {}).get(team.team_id, custom_team_players if team.team_id == custom_team_id else ()),
                 injury_context=injury_context, team_id=team.team_id)
         team_punts = injury_context.punts_for(team.team_id) if injury_context else punt_categories
-        lineup = build_matchup_lineups(players, scoring_periods, slots=snapshot.active_slots, punt_categories=team_punts)
-        stats = project_team_stats(players, lineup["selected_games"])
+        lineup = future_lineups(players, scoring_periods, snapshot.active_slots, team_punts,
+                                current=current, team_id=team.team_id)
+        live = current.remainders(team.team_id, live_players) if current else {}
+        stats = future_stats(players, lineup, live_players, live)
         team_stats[team.team_id] = {"name": team.team_name, "stats": stats}
         team_projections[team.team_id] = {
             "selected_games": lineup["selected_games"],

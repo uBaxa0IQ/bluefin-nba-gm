@@ -13,8 +13,10 @@ from .projections import projection_snapshot_options
 
 def without_player(weeks, team_id, player_id):
     # No replacement: other starters and already credited totals stay fixed.
-    return [replace(week, games={team: {pid: count for pid, count in games.items()
-        if team != team_id or pid != player_id} for team, games in week.games.items()}) for week in weeks]
+    return [replace(week,
+        games={**week.games, team_id: {pid: n for pid, n in week.games.get(team_id, {}).items() if pid != player_id}},
+        live_games={**week.live_games, team_id: {pid: game for pid, game in week.live_games.get(team_id, {}).items()
+                                              if pid != player_id}}) for week in weeks]
 
 
 def team_forecast(forecast, team_id):
@@ -58,6 +60,7 @@ def run_contribution(metadata, params, progress):
         punt_categories=params['punt_categories'], snapshot=snapshot, punt_team_id=params.get('punt_team_id'))
     distributions, _ = build_distributions(prepared['players'], metadata.year,
         ROOT / '.cache' / 'monte_carlo' / 'game_logs', as_of=datetime.fromisoformat(prepared['metadata']['as_of']),
+        excluded_events=prepared['excluded_events'],
         progress=lambda done, total: progress('histories', done, total))
 
     def simulate(plans):
@@ -73,7 +76,8 @@ def run_contribution(metadata, params, progress):
         'baseline': baseline, 'players': [], 'metadata': prepared['metadata']}
     for i, player in enumerate(roster):
         games = sum(w.games.get(team_id, {}).get(player.player_id, 0) for w in prepared['weeks'])
-        removed = simulate(without_player(prepared['weeks'], team_id, player.player_id)) if games else baseline
+        has_remainder = any(player.player_id in week.live_games.get(team_id, {}) for week in prepared['weeks'])
+        removed = simulate(without_player(prepared['weeks'], team_id, player.player_id)) if games or has_remainder else baseline
         row = contribution_row(player, baseline, removed, games)
         result = {**result, 'players': [*result['players'], row]}
         progress('players', i + 1, len(roster), result)

@@ -149,6 +149,8 @@ def build_matchup_lineups(
     slots: Sequence[str] = DEFAULT_LINEUP_SLOTS,
     punt_categories: Iterable[str] = (),
     fill_slots: bool = True,
+    *,
+    daily_slots=None,
 ) -> Dict[str, Any]:
     days = []
     selected_games: Dict[str, int] = {player["name"]: 0 for player in players}
@@ -160,9 +162,10 @@ def build_matchup_lineups(
             if not has_game(player, scoring_period):
                 continue
             playing.append(player)
-        key = tuple(id(player) for player in playing)
+        open_slots = (daily_slots or {}).get(scoring_period, slots)
+        key = (tuple(id(player) for player in playing), tuple(open_slots))
         if key not in day_cache:
-            day_cache[key] = optimize_daily_lineup(playing, slots, punt_categories, fill_slots)
+            day_cache[key] = optimize_daily_lineup(playing, open_slots, punt_categories, fill_slots)
         optimized = day_cache[key]
         for starter in optimized["starters"]:
             name = starter["player"]["name"]

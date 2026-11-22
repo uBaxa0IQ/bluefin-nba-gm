@@ -2,14 +2,16 @@
 from collections import Counter, defaultdict
 
 from core.monte_carlo import WeekPlan, COMPONENTS, RATIOS
-from core.projection import build_matchup_lineups, get_matchup_scoring_periods, get_remaining_scoring_periods, roster_available_on
+from core.live_games import LiveGame, started_games
+from core.projection import get_matchup_scoring_periods, get_remaining_scoring_periods, roster_available_on
 from core.snapshot import build_league_snapshot
 from core.simulation import compare_category_stats
 from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
+from .live_matchups import current_matchup, current_totals, future_lineups
 
 
 def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=13,
-                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None):
+                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None, live_matchup=None):
     league = metadata.league
     snapshot = snapshot or build_league_snapshot(metadata, period, **projection_snapshot_options(simulation_mode))
     injury_context = projection_injury_context(metadata, snapshot, simulation_mode,
@@ -102,19 +104,25 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
         if injury_context:
             timelines[str(team_id)] = timeline
     plans, scheduled_players = [], {}
+    if current <= final:
+        live_matchup = live_matchup or current_matchup(metadata, current, snapshot.active_slots)
+    live_players = {p.player_id: p.as_projection_player() for p in snapshot.players} if live_matchup and live_matchup.confirmed else {}
+    excluded_events = {str(g['id']) for schedule in started_games(league, snapshot.created_at).values()
+                       for g in schedule if not g.get('statsOfficial')}
     for week in range(current, final + 1):
         days = get_remaining_scoring_periods(league, week) if week == current else get_matchup_scoring_periods(league, week)
         if not days:
             # A fully played current week can have no remaining days; future weeks cannot.
             if week > current:
                 raise ValueError(f'Missing NBA scoring days for week {week}')
-        actual, games = {}, {}
+        actual, games, live_games = {}, {}, {}
         for team in teams:
             team_id = team['team_id']
             players = [{**p, 'future_only': week == current, 'as_of': snapshot.created_at}
                        for p in selected[team_id]]
             team_punts = injury_context.punts_for(team_id) if injury_context else punt_categories
-            lineup = build_matchup_lineups(players, days, slots=snapshot.active_slots, punt_categories=team_punts)
+            lineup = future_lineups(players, days, snapshot.active_slots, team_punts,
+                                    current=live_matchup if week == current else None, team_id=team_id)
             games[team_id] = {}
             for player in players:
                 count = lineup['selected_games'].get(player['name'], 0)
@@ -125,16 +133,18 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
                     games[team_id][pid] = count
                     scheduled_players[pid] = player
             if week == current:
-                box = metadata.get_matchup_box_score(week, team_id)
-                totals = box['totals'] if box else {}
+                totals = current_totals(metadata, week, team_id, live_matchup)
+                live_games[team_id] = live_matchup.remainders(team_id, live_players)
+                scheduled_players.update({pid: live_players[pid] for pid in live_games[team_id]})
                 if any(totals.get(c, 0) for c in COMPONENTS):
                     required = set(COMPONENTS) - {'DD'}
                     missing = required - totals.keys()
                     if missing:
                         raise ValueError(f'Current-week credited shot components missing for team {team_id}: {sorted(missing)}')
                 actual[team_id] = totals
-        plans.append(WeekPlan(week, games, tuple(pairs[week]), actual))
+        plans.append(WeekPlan(week, games, tuple(pairs[week]), actual, live_games))
     return {'teams': teams, 'weeks': plans, 'players': list(scheduled_players.values()),
+            'excluded_events': sorted(excluded_events),
             'historical_h2h': historical, 'categories': categories, 'reverse_categories': sorted(reverse),
             'matchup_tie_category': tie_category,
             'playoff_teams': int(league.settings.playoff_team_count),
@@ -173,7 +183,9 @@ def load_inputs(path):
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     data['weeks'] = [WeekPlan(w['week'], {int(t): {int(p): n for p, n in games.items()} for t, games in w['games'].items()},
                               tuple(tuple(pair) for pair in w['official_pairs']),
-                              {int(t): stats for t, stats in w['actual'].items()}) for w in data['weeks']]
+                              {int(t): stats for t, stats in w['actual'].items()},
+                              {int(t): {int(pid): LiveGame(**game) for pid, game in games.items()}
+                               for t, games in w.get('live_games', {}).items()}) for w in data['weeks']]
     distributions = {int(pid): PlayerDistribution(d['samples'], d['weights'], d['source'])
                      for pid, d in data.pop('distributions').items()}
     return data, distributions

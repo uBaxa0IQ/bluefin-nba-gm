@@ -1,5 +1,5 @@
 """Paired regular-season forecasts for a proposed two-team trade."""
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from time import perf_counter
 import hashlib
@@ -14,6 +14,7 @@ from .probability_jobs import ProbabilityJobs, ROOT
 from core.analytics_cache import analytics_version
 from core.injuries import INJURY_MODE
 from .projections import projection_snapshot_options
+from .live_matchups import current_matchup
 
 _before_cache = {}
 
@@ -68,12 +69,14 @@ def run_trade_probability(metadata, params, progress):
     common = {k: params[k] for k in ('period', 'simulation_mode', 'top_n_players', 'punt_categories')}
     if 'punt_team_id' in params:
         common['punt_team_id'] = params['punt_team_id']
-    before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'], snapshot=before_snapshot)
-    after = prepare_season(metadata, **common, custom_rosters=after_custom, snapshot=after_snapshot)
+    live = current_matchup(metadata, before_snapshot.current_matchup_period, before_snapshot.active_slots)
+    before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'], snapshot=before_snapshot, live_matchup=live)
+    after = prepare_season(metadata, **common, custom_rosters=after_custom, snapshot=after_snapshot, live_matchup=live)
     players = {p['player_id']: p for plan in (before, after) for p in plan['players']}
     progress('histories', 0, len(players))
     distributions, _ = build_distributions(list(players.values()), metadata.year,
         ROOT / '.cache' / 'monte_carlo' / 'game_logs', as_of=datetime.fromisoformat(before['metadata']['as_of']),
+        excluded_events=before['excluded_events'],
         progress=lambda done, total: progress('histories', done, total))
     ids = {params['my_team_id'], params['their_team_id']}
     result = {'trials': 3000, 'before': None, 'after': None}
@@ -83,6 +86,7 @@ def run_trade_probability(metadata, params, progress):
     # Share baseline category probabilities and standings across trade proposals.
     cache_key = hashlib.sha256(json.dumps([metadata.league_id, metadata.year,
         analytics_version(metadata, stochastic=True, injury_aware=common['simulation_mode'] == INJURY_MODE),
+        asdict(before['weeks'][0]) if before['weeks'] else None,
         common, params['custom_rosters'],
         params.get('seed', 20261116)], sort_keys=True).encode()).hexdigest()
     for label, prepared in (('before', before), ('after', after)):

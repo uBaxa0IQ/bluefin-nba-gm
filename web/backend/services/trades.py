@@ -3,18 +3,17 @@
 
 from core.config import CATEGORIES
 from core.projection import (
-    build_matchup_lineups,
     get_matchup_scoring_periods,
     get_remaining_scoring_periods,
-    project_team_stats,
 )
 from core.snapshot import build_league_snapshot
 from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
+from .live_matchups import current_matchup, future_lineups, future_stats
 
 
-def _project(players, scoring_periods, punts, slots):
-    lineup = build_matchup_lineups(players, scoring_periods, slots=slots, punt_categories=punts)
-    stats = project_team_stats(players, lineup["selected_games"])
+def _project(players, scoring_periods, punts, slots, current, team_id, live_players, live):
+    lineup = future_lineups(players, scoring_periods, slots, punts, current=current, team_id=team_id)
+    stats = future_stats(players, lineup, live_players, live)
     value = sum(day["total_value"] for day in lineup["days"])
     return value, stats, sum(lineup["selected_games"].values())
 
@@ -35,6 +34,8 @@ def analyze_calendar_trade(league_metadata, period, team_moves, punt_categories=
         player.name: {**player.as_projection_player(), 'future_only': True}
         for player in snapshot.players
     }
+    current = current_matchup(league_metadata, matchup_period, snapshot.active_slots)
+    live_players = {player['player_id']: player for player in all_players.values()} if current.confirmed else {}
     teams = {}
     for team_id, move in team_moves.items():
         before = [{**player.as_projection_player(), 'future_only': True} for player in snapshot.team_players(team_id)]
@@ -55,8 +56,10 @@ def analyze_calendar_trade(league_metadata, period, team_moves, punt_categories=
         if selected_after and team_id in selected_after:
             after = [player for player in after if player['name'] in selected_after[team_id]]
         team_punts = injury_context.punts_for(team_id) if injury_context else punt_categories
-        before_value, before_stats, before_games = _project(before, scoring_periods, team_punts, snapshot.active_slots)
-        after_value, after_stats, after_games = _project(after, scoring_periods, team_punts, snapshot.active_slots)
+        args = (scoring_periods, team_punts, snapshot.active_slots, current, team_id,
+                live_players, current.remainders(team_id, live_players))
+        before_value, before_stats, before_games = _project(before, *args)
+        after_value, after_stats, after_games = _project(after, *args)
         teams[team_id] = {
             "before_value": round(before_value, 3),
             "after_value": round(after_value, 3),

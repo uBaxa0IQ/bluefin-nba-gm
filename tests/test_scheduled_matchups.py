@@ -24,7 +24,7 @@ def test_weekly_projection_uses_only_official_pairs(monkeypatch):
         ],
     )
     monkeypatch.setattr(projections, "get_remaining_scoring_periods", lambda league, week: [1, 2])
-    monkeypatch.setattr(projections, "build_league_snapshot", lambda metadata, period: object())
+    monkeypatch.setattr(projections, "build_league_snapshot", lambda metadata, period: SimpleNamespace(active_slots=('PG',)))
     monkeypatch.setattr(
         projections, "project_snapshot_for_matchup",
         lambda snapshot, teams, days, **kwargs: (stats, {}),

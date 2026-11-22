@@ -27,6 +27,7 @@ def run_probability_job(metadata, params, progress):
     distributions, coverage = build_distributions(
         prepared['players'], metadata.year, ROOT / '.cache' / 'monte_carlo' / 'game_logs',
         as_of=datetime.fromisoformat(prepared['metadata']['as_of']),
+        excluded_events=prepared['excluded_events'],
         progress=lambda done, total: progress('histories', done, total))
     progress('simulation', 0, params['trials'])
     result = simulate_seasons(prepared['teams'], prepared['weeks'], distributions,

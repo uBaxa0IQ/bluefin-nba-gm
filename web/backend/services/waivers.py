@@ -3,7 +3,6 @@
 
 from core.config import CATEGORIES
 from core.projection import (
-    build_matchup_lineups,
     get_matchup_scoring_periods,
     get_remaining_scoring_periods,
     player_value,
@@ -12,19 +11,22 @@ from core.projection import (
 )
 from core.snapshot import build_league_snapshot
 from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
+from .live_matchups import current_matchup, current_opponent, current_totals, future_lineups, future_stats, remainder_stats
 from core.z_score import calculate_player_z_scores, calculate_z_scores_from_players
 from core.matchup_value import combine_stats, matchup_utility, add_matchup_values
 
 
-def _lineup_projection(players, scoring_periods, punts, slots, opponent=None, accrued=None):
+def _lineup_projection(players, scoring_periods, punts, slots, opponent=None, accrued=None,
+                       current=None, team_id=None, fixed_future=None):
     if opponent is not None:
-        initial = build_matchup_lineups(players, scoring_periods, slots=slots, punt_categories=punts)
-        baseline = combine_stats(accrued or {}, project_team_stats(players, initial['selected_games']))
+        initial = future_lineups(players, scoring_periods, slots, punts, current=current, team_id=team_id)
+        baseline = combine_stats(accrued or {}, fixed_future or {}, project_team_stats(players, initial['selected_games']))
         players = add_matchup_values(players, baseline, opponent, punts)
-    lineup = build_matchup_lineups(players, scoring_periods, slots=slots, punt_categories=punts, fill_slots=opponent is None)
+    lineup = future_lineups(players, scoring_periods, slots, punts, current=current, team_id=team_id,
+                            fill_slots=opponent is None)
     return (
         sum(player_value({k: v for k, v in player.items() if k != 'lineup_value'}, punts) * lineup['selected_games'].get(player['name'], 0) for player in players),
-        project_team_stats(players, lineup["selected_games"]),
+        combine_stats(fixed_future or {}, project_team_stats(players, lineup["selected_games"])),
         lineup["selected_games"],
     )
 
@@ -62,22 +64,27 @@ def recommend_free_agents(
     if not scoring_periods:
         return {'team_id': team_id, 'players': [], 'scoring_periods': [], 'method': 'season_complete', 'note': 'Нет оставшихся игровых дней.'}
 
-    box = league_metadata.get_matchup_box_score(matchup_period, team_id)
-    accrued = box['totals'] if box else {}
+    current = current_matchup(league_metadata, matchup_period, snapshot.active_slots)
+    live_players = {p.player_id: p.as_projection_player() for p in snapshot.players} if current.confirmed else {}
+    fixed_future = remainder_stats(live_players, current.remainders(team_id, live_players))
+    accrued = current_totals(league_metadata, matchup_period, team_id, current)
+    opponent_id = current_opponent(league_metadata, matchup_period, team_id, current)
     opponent = None
-    if box:
+    if opponent_id is not None:
         opponent_players = select_projection_roster(
-            [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(box['opponent_id'])],
-            simulation_mode, top_n_players, injury_context=injury_context, team_id=box['opponent_id'],
+            [{**p.as_projection_player(), 'future_only': True} for p in snapshot.team_players(opponent_id)],
+            simulation_mode, top_n_players, injury_context=injury_context, team_id=opponent_id,
         )
-        opponent_punts = injury_context.punts_for(box['opponent_id']) if injury_context else punt_categories
-        _, opponent_future, _ = _lineup_projection(opponent_players, scoring_periods, opponent_punts, snapshot.active_slots)
-        opponent_box = league_metadata.get_matchup_box_score(matchup_period, box['opponent_id'])
-        if opponent_box:
-            opponent = combine_stats(opponent_box['totals'], opponent_future)
+        opponent_punts = injury_context.punts_for(opponent_id) if injury_context else punt_categories
+        lineup = future_lineups(opponent_players, scoring_periods, snapshot.active_slots, opponent_punts,
+                                current=current, team_id=opponent_id)
+        opponent_actual = current_totals(league_metadata, matchup_period, opponent_id, current)
+        if opponent_actual:
+            opponent = combine_stats(opponent_actual, future_stats(
+                opponent_players, lineup, live_players, current.remainders(opponent_id, live_players)))
 
     baseline_value, baseline_stats, baseline_games = _lineup_projection(
-        roster, scoring_periods, punt_categories, snapshot.active_slots, opponent, accrued
+        roster, scoring_periods, punt_categories, snapshot.active_slots, opponent, accrued, current, team_id, fixed_future
     )
     free_agents = []
     free_agent_summaries = league_metadata.get_free_agents(size=200, position=position)
@@ -134,7 +141,8 @@ def recommend_free_agents(
             if injury_context:
                 changed_roster, _ = injury_context.plan(changed_roster, team_id)
             value, projected_stats, selected_games = _lineup_projection(
-                changed_roster, scoring_periods, punt_categories, snapshot.active_slots, opponent, accrued
+                changed_roster, scoring_periods, punt_categories, snapshot.active_slots, opponent, accrued,
+                current, team_id, fixed_future
             )
             gain = value - baseline_value
             player_games_delta = sum(selected_games.values()) - sum(baseline_games.values())
