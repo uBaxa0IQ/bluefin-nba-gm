@@ -89,6 +89,18 @@ def category_arrays(totals, categories):
     return np.stack(result, axis=-1)
 
 
+def compare_category_trials(left, right, left_tie=None, right_tie=None):
+    comparison = np.sign(left - right)
+    comparison[np.isclose(left, right, rtol=0, atol=1e-12)] = 0
+    left_wins = (comparison > 0).sum(axis=1)
+    right_wins = (comparison < 0).sum(axis=1)
+    outcomes = np.sign(left_wins - right_wins).astype(int)
+    if left_tie is not None:
+        tied = outcomes == 0
+        outcomes[tied] = np.sign(left_tie[tied] - right_tie[tied]).astype(int)
+    return comparison, left_wins, right_wins, outcomes
+
+
 def rank_trial(points, games, h2h_points, h2h_games, rng):
     """Single-division ESPN H2H_RECORD: win rate, tied-group H2H, coin flip.
 
@@ -187,22 +199,18 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                 player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id, 1]))
                 totals[:, team_index] += sample_remainder(distributions[player_id], game, trials, player_rng)
         stats = category_arrays(totals, categories) * direction
-        tie_stats = category_arrays(totals, [matchup_tie_category])[..., 0] if matchup_tie_category else None
+        tie_direction = -1 if matchup_tie_category in reverse_categories else 1
+        tie_stats = (category_arrays(totals, [matchup_tie_category])[..., 0] * tie_direction
+                     if matchup_tie_category else None)
         official = {frozenset(pair) for pair in plan.official_pairs}
         matchups = []
         pairs = [(a, b) for a in range(n) for b in range(a + 1, n)] if all_opponents else [
             (positions[a], positions[b]) for a, b in plan.official_pairs]
         for a, b in pairs:
-            comparison = np.sign(stats[:, a] - stats[:, b])
-            # Floating point percentage arithmetic only; count totals stay exact.
-            comparison[np.isclose(stats[:, a], stats[:, b], rtol=0, atol=1e-12)] = 0
-            left_wins = (comparison > 0).sum(axis=1)
-            right_wins = (comparison < 0).sum(axis=1)
-            outcomes = np.sign(left_wins - right_wins).astype(int)
-            if matchup_tie_category:
-                tie_direction = -1 if matchup_tie_category in reverse_categories else 1
-                tied = outcomes == 0
-                outcomes[tied] = np.sign(tie_direction * (tie_stats[tied, a] - tie_stats[tied, b])).astype(int)
+            comparison, left_wins, right_wins, outcomes = compare_category_trials(
+                stats[:, a], stats[:, b], tie_stats[:, a] if tie_stats is not None else None,
+                tie_stats[:, b] if tie_stats is not None else None,
+            )
             is_official = frozenset((ids[a], ids[b])) in official
             matchups.append({
                 'team1_id': ids[a], 'team2_id': ids[b], 'official': is_official,

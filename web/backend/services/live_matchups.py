@@ -56,6 +56,14 @@ def _nba_summary(game_id):
         return {}
 
 
+def read_fantasy_day(league, week, day):
+    filters = {'schedule': {'filterMatchupPeriodIds': {'value': [week]}}}
+    return league.espn_request.league_get(
+        params={'view': ['mMatchupScore', 'mScoreboard'], 'scoringPeriodId': day},
+        headers={'x-fantasy-filter': json.dumps(filters)},
+    )
+
+
 def _live_box(data):
     competitions = data.get('header', {}).get('competitions', ())
     status = competitions[0].get('status', {}) if competitions else {}
@@ -71,6 +79,10 @@ def _live_box(data):
     except (KeyError, ValueError, TypeError):
         return 0, 0.0, {}
 
+    return period, minutes, nba_player_lines(data)
+
+
+def nba_player_lines(data):
     players = {}
     for team in data.get('boxscore', {}).get('players', ()):
         for group in team.get('statistics', ()):
@@ -86,7 +98,7 @@ def _live_box(data):
                     players[int(row['athlete']['id'])] = stats
                 except (KeyError, ValueError, TypeError):
                     continue
-    return period, minutes, players
+    return players
 
 
 @dataclass(frozen=True)
@@ -176,14 +188,9 @@ def current_matchup(metadata, week, slots):
         # Keep the projection cutoff current even when credits are shared.
         return CurrentMatchup(as_of, day, cached[2].actual, cached[2].locked_slots, cached[2].confirmed, cached[2].opponents)
     try:
-        request = league.espn_request
-        filters = {'schedule': {'filterMatchupPeriodIds': {'value': [week]}}}
         with ThreadPoolExecutor(max_workers=min(8, 1 + len(game_ids))) as pool:
             summaries = {gid: pool.submit(_nba_summary, gid) for gid in game_ids}
-            raw = request.league_get(
-                params={'view': ['mMatchupScore', 'mScoreboard'], 'scoringPeriodId': day},
-                headers={'x-fantasy-filter': json.dumps(filters)},
-            )
+            raw = read_fantasy_day(league, week, day)
             boxes = {gid: _live_box(task.result()) for gid, task in summaries.items()}
         result = _parse_matchup(raw, week, day, as_of, started, boxes, slots)
     except (AttributeError, KeyError, TypeError, ValueError, requests.RequestException,

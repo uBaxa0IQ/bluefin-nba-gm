@@ -1,17 +1,31 @@
 """
 Роутер для дашборда команд.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from dependencies import get_league_meta
 from core.z_score import calculate_z_scores
 from core.config import CATEGORIES, DEFAULT_PERIOD, REVERSE_CATEGORIES
 from utils.calculations import calculate_team_raw_stats, select_top_n_players
 from services.game_usage import get_week_game_usage
+from services.matchup_timeline import TimelineUnavailable, get_matchup_timeline
 from core.roster_rules import static_roster_mode
 from typing import Optional, List
 import math
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+
+@router.get("/{team_id}/matchup-timeline")
+def matchup_timeline(team_id: int, week: int = Query(ge=1), league_meta=Depends(get_league_meta)):
+    from espn_api.requests.espn_requests import ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError
+    from requests import RequestException
+
+    try:
+        return get_matchup_timeline(league_meta, team_id, week)
+    except (TimelineUnavailable, OSError, ValueError, RequestException,
+            ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError) as error:
+        detail = str(error) if isinstance(error, TimelineUnavailable) else 'Matchup timeline data unavailable'
+        raise HTTPException(status_code=503, detail=detail) from error
 
 
 @router.get("/{team_id}")
@@ -313,6 +327,7 @@ def get_matchup_details(
     league_meta=Depends(get_league_meta),
     punt_team_id: int | None = None,
     punt_categories: str = '',
+    include_game_usage: bool = True,
 ):
     """
     Получает детальную информацию о матчапе команды.
@@ -400,13 +415,13 @@ def get_matchup_details(
         },
         'score': f"{my_wins}-{opponent_wins}-{ties}",
         'categories': categories_data,
-        'game_usage': get_week_game_usage(
+        **({'game_usage': get_week_game_usage(
             league_meta, (team_id, opponent_id), period=period,
             simulation_mode=simulation_mode, top_n_players=top_n_players,
             custom_team_id=team_id,
             custom_team_players=tuple(custom_team_players.split(',')) if custom_team_players else (),
             punt_team_id=punt_team_id, punt_categories=tuple(filter(None, punt_categories.split(','))),
-        ),
+        )} if include_game_usage else {}),
     }
 
 

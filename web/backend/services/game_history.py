@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import time
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 import numpy as np
 
@@ -49,12 +50,13 @@ def parse_games(data):
     return sorted(rows.values(), key=lambda g: g['date'], reverse=True)
 
 
-def load_games(player_id, season, cache_dir, *, offline=False):
+def load_games(player_id, season, cache_dir, *, offline=False, cache_after=None):
     path = Path(cache_dir) / str(season) / f'{player_id}.json'
     cached = None
     if path.exists():
         cached = json.loads(path.read_text(encoding='utf-8'))
-        if offline or time.time() - cached['fetched_at'] < 6 * 3600:
+        if (offline or time.time() - cached['fetched_at'] < 6 * 3600
+                or cache_after is not None and cached['fetched_at'] >= cache_after):
             return cached['games']
     if offline:
         raise ValueError(f'No cached history for player {player_id}, season {season}')
@@ -70,7 +72,7 @@ def load_games(player_id, season, cache_dir, *, offline=False):
             if 'seasonTypes' not in data and not empty_history:
                 raise ValueError(f'Unexpected ESPN log response for {player_id}/{season}')
             path.parent.mkdir(parents=True, exist_ok=True)
-            temp = path.with_suffix('.tmp')
+            temp = path.with_suffix(f'.{uuid4().hex}.tmp')
             temp.write_text(json.dumps({'fetched_at': time.time(), 'games': games}), encoding='utf-8')
             temp.replace(path)
             return games
@@ -82,8 +84,12 @@ def load_games(player_id, season, cache_dir, *, offline=False):
 
 def build_distributions(players, season, cache_dir, *, as_of=None, offline=False,
                         half_life_games=20, max_games=60, min_games=8, workers=6,
-                        progress=None, excluded_events=()):
-    """Recent full game rows; prior season supplements short current histories."""
+                        progress=None, excluded_events=(), historical=False):
+    """Sample only games before the cutoff, with prior-season rows as needed.
+
+    Historical replays can use a cached export fetched after their cutoff.
+    Players with no pre-cutoff history are reported without a distribution.
+    """
     if half_life_games <= 0 or max_games < 1 or min_games < 1:
         raise ValueError('Invalid history sampling settings')
     cutoff = as_of or datetime.now(timezone.utc)
@@ -94,7 +100,8 @@ def build_distributions(players, season, cache_dir, *, as_of=None, offline=False
         rows = []
         counts = {}
         for year in (season, season - 1):
-            games = [g for g in load_games(pid, year, cache_dir, offline=offline)
+            games = [g for g in load_games(pid, year, cache_dir, offline=offline,
+                                          cache_after=cutoff.timestamp() if historical else None)
                      if str(g.get('event_id')) not in excluded
                      and datetime.fromisoformat(g['date'].replace('Z', '+00:00')) <= cutoff]
             counts[str(year)] = len(games)
@@ -102,6 +109,8 @@ def build_distributions(players, season, cache_dir, *, as_of=None, offline=False
             if len(rows) >= min_games:
                 break
         if not rows:
+            if historical:
+                return pid, None, {'player_id': pid, 'name': player['name'], 'games': 0}
             raise ValueError(f"No played games for {player['name']} ({pid}); refusing to invent a distribution")
         rows.sort(key=lambda g: g[0]['date'], reverse=True)
         rows = rows[:max_games]
@@ -123,7 +132,8 @@ def build_distributions(players, season, cache_dir, *, as_of=None, offline=False
         futures = [pool.submit(one, player) for player in unique.values()]
         for future in as_completed(futures):
             pid, distribution, report = future.result()
-            distributions[pid] = distribution
+            if distribution is not None:
+                distributions[pid] = distribution
             coverage.append(report)
             if progress:
                 progress(len(coverage), len(unique))
