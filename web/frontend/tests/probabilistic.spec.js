@@ -312,6 +312,10 @@ test('roster contribution streams rows, opens details and drops results after a 
     release();
     await expect(page.locator('.bf-contribution-table tbody')).toContainText('+12.0');
     await expect(page.locator('.bf-contribution-table tbody')).toContainText('-3.0');
+    const contributionTable = page.locator('.bf-contribution-table');
+    await contributionTable.getByRole('button', { name: 'PTS', exact: true }).click();
+    await contributionTable.getByRole('button', { name: 'REB', exact: true }).click({ modifiers: ['Shift'] });
+    await expect(contributionTable.locator('caption')).toHaveText('PTS + REB ↓');
     const beforePunts = calls;
     await page.getByRole('button', { name: /Настройки/ }).click();
     await page.locator('[data-punt="PTS"]').check();

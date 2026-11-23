@@ -11,8 +11,8 @@ function actualMatchDialog(){
   if(d.status==='not_started')return empty();
   const {my_team:own,opponent}=d;
   const rows=d.categories.map(c=>`<tr><td>${E(c.category)}</td>
-    <td style="${c.winner==='my_team'?tone(2):c.winner==='opponent'?tone(-1):''}">${stat(c.my_value,c.category)}</td>
-    <td style="${c.winner==='opponent'?tone(2):c.winner==='my_team'?tone(-1):''}">${stat(c.opponent_value,c.category)}</td></tr>`).join('');
+    <td class="${c.winner==='my_team'?'bf-match-win-own':''}">${stat(c.my_value,c.category)}</td>
+    <td class="${c.winner==='opponent'?'bf-match-win-opponent':''}">${stat(c.opponent_value,c.category)}</td></tr>`).join('');
   return `<div class="bf-match-title">${link(own.name,'team',own.id)}<strong>${E(d.score)}</strong>${link(opponent.name,'team',opponent.id)}</div>
    ${matchupTimeline(team,week,d)}
    <table class="bf-category bf-match-category"><thead><tr><th>${tr('Категория','Category')}</th><th>${E(own.name)}</th><th>${E(opponent.name)}</th></tr></thead><tbody>${rows}</tbody></table>`;

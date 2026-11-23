@@ -44,8 +44,6 @@ function matchupOddsChart(data, matchup){
    style="left:${100*x(i)/W}%;top:${100*y(p)/H}%"></span>`};
  });
  const latest=rows.at(-1);
- const shortfall=data.unmodelled_players?
-  ' · '+tr('Игроков без истории','Players without history')+' '+data.unmodelled_players:'';
  return `<div class="bf-odds-legend"><span>${E(matchup.my_team.name)}</span><span>${E(matchup.opponent.name)}</span></div>
   <div class="bf-odds-plot">
    <div class="bf-odds-scale" aria-hidden="true"><span>100%</span><strong>50%</strong><span>0%</span></div>
@@ -69,8 +67,7 @@ function matchupOddsChart(data, matchup){
    </div>
    <div class="bf-odds-days" aria-hidden="true">${ticks.map(t=>`<span style="left:${100*x(t.index)/W}%">${E(t.label)}</span>`).join('')}</div>
   </div>
-  <div class="bf-odds-readout"><span data-odds-label>${E(latest.label)}</span><strong data-odds-value>${E(latest.detail)}</strong></div>
-  <p class="bf-odds-source">${tr('Реконструкция по завершённым играм NBA. Ничья делится пополам.','Reconstructed from NBA finals. Ties count as half a win.')}${shortfall}</p>`;
+  <div class="bf-odds-readout"><span data-odds-label>${E(latest.label)}</span><strong data-odds-value>${E(latest.detail)}</strong></div>`;
 }
 
 function selectMatchupOddsPoint(plot, index){

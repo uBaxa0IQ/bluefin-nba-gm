@@ -6,7 +6,11 @@ app.addEventListener('click',async event=>{
  if(el.dataset.page){event.preventDefault();openRoute(el.dataset.page,el.dataset.id);return;}
  if(el.dataset.compare){toggleCompare(el.dataset.compare);render();return;}
  if(el.dataset.remove){s[el.dataset.remove]=s[el.dataset.remove].filter(n=>n!==el.dataset.name);invalidate();save();render();return;}
- if(el.dataset.sort){s.direction=s.sort===el.dataset.sort?-s.direction:-1;s.sort=el.dataset.sort;s.sortValues=s.values;render();return;}
+ if(el.dataset.sort){
+  const columns=el.closest('.bf-players.compact')?compactPlayerColumns:s.columns;
+  Object.assign(s,nextPlayerSort(visiblePlayerSort(columns),s.direction,el.dataset.sort,event.shiftKey,columns));
+  render();return;
+ }
  if(el.dataset.set){s[el.dataset.set]=el.dataset.value;if(['tradeValues','simMode','probTeamView','probView'].includes(el.dataset.set))save();render();return;}
  if(el.dataset.match){s.detail={team:+el.dataset.match,week:+el.dataset.week};s.overlay='match';render();return;}
  if(el.dataset.simTeam){s.detail={team:+el.dataset.simTeam,path:el.dataset.source==='forecast'?seasonPath():simulationPath(),season:el.dataset.source==='forecast'||s.simMode==='calendar'};s.overlay='sim-details';render();return;}
@@ -58,7 +62,12 @@ app.addEventListener('change',async event=>{
  if(el.dataset.pick){const team=s.pickTeam,chosen=selected(team).map(p=>p.name);if(el.checked&&chosen.length>=13){el.checked=false;return;}s.picks[team]=el.checked?[...chosen,el.dataset.pick]:chosen.filter(n=>n!==el.dataset.pick);if(!s.picks[team].length){s.picks[team]=chosen;el.checked=true;return;}invalidate();save();}
  if(el.dataset.punt){s.punts=el.checked?[...s.punts,el.dataset.punt]:s.punts.filter(c=>c!==el.dataset.punt);invalidate();save();}
  if(el.dataset.toggle){s[el.dataset.toggle]=el.checked;invalidate();save();}
- if(el.dataset.column){s.columns=el.checked?[...s.columns,el.dataset.column]:s.columns.filter(c=>c!==el.dataset.column);save();}
+ if(el.dataset.column){
+  const column=el.dataset.column;
+  s.columns=el.checked?[...new Set([...s.columns,column])]:s.columns.filter(c=>c!==column);
+  if(!el.checked)s.sortColumns=s.sortColumns.filter(c=>c!==column);
+  save();
+ }
  if(el.dataset.trade){const k=el.dataset.trade;s[k]=el.checked?[...s[k],el.value]:s[k].filter(v=>v!==el.value);invalidate();save();}
  render();
 });

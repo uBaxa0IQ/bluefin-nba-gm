@@ -8,7 +8,7 @@ const sum=(xs,f)=>xs.reduce((v,x)=>v+(finite(f(x))?f(x):0),0);
 const date=v=>v?new Date(v).toLocaleDateString(uiLocale(),{day:'numeric',month:'short'}):'—';
 const cache=new Map(), knownPlayers=new Map();
 let settings,teams=[],players=[],weeks,cats=[],myTeam,loaded=false,loading=false,error='',loadVersion=0;
-let s={page:'team',team:null,tab:'overview',period:'total',rosterMode:'top_n',picks:{},punts:[],puntsEnabled:true,columns:[],values:'raw',sort:'z',sortValues:'raw',direction:-1,matrix:'rank',matrixSource:'raw',compare:null,search:'',position:'',market:'all',hideNoTeam:true,hideLong:true,player:null,profileTab:'profile',logsOffset:0,calendarWeek:null,calendarDay:null,week:null,simMode:'matchup',simWeek:null,weeksCount:1,tradeTeam:null,give:[],receive:[],trade:null,tradeBusy:false,tradeError:'',tradeValues:'z',overlay:null,detail:null,comparePlayers:[],comparePeriod:null,compareValues:'raw',pickTeam:null,chooser:'give',chooserSearch:''};
+let s={page:'team',team:null,tab:'overview',period:'total',rosterMode:'top_n',picks:{},punts:[],puntsEnabled:true,columns:[],values:'raw',sortColumns:['z'],direction:-1,matrix:'rank',matrixSource:'raw',compare:null,search:'',position:'',market:'all',hideNoTeam:true,hideLong:true,player:null,profileTab:'profile',logsOffset:0,calendarWeek:null,calendarDay:null,week:null,simMode:'matchup',simWeek:null,weeksCount:1,tradeTeam:null,give:[],receive:[],trade:null,tradeBusy:false,tradeError:'',tradeValues:'z',overlay:null,detail:null,comparePlayers:[],comparePeriod:null,compareValues:'raw',pickTeam:null,chooser:'give',chooserSearch:''};
 const key=()=>`bluefin-live-v1:${settings?.season.league_id}:${settings?.season.year}`;
 const id=p=>String(p.player_id??p.name);
 const punts=()=>s.puntsEnabled?s.punts:[];
@@ -47,7 +47,56 @@ function healthLabel(p){const h=healthy(p);return ['ACTIVE','HEALTHY','PROBABLE'
 function health(p,full=false){const h=healthy(p),label=healthLabel(p);return `<span class="bf-status ${label==='Здоров'?'healthy':''}">${E(label)}</span>${full?`<span class="pe-muted">${h.out_for_season?'До конца сезона':h.expected_return_date?'Возвращение · '+date(h.expected_return_date):label==='Здоров'?'':label==='…'?'':'Срок неизвестен'}${h.injury_detail?' · '+E(h.injury_detail):''}</span>`:''}`;}
 function radar(team,other=null,person=null,people=null){const list=people??(person?[person]:[]),N=cats.length,cx=190,cy=180,R=117;const point=(i,v)=>{const a=i/N*Math.PI*2-Math.PI/2;return [cx+Math.cos(a)*R*v,cy+Math.sin(a)*R*v];};const poly=f=>cats.map((c,i)=>point(i,f(c)).join(',')).join(' ');const all=list.length?list.flatMap(p=>cats.map(c=>p.z_scores?.[c]??0)):teams.flatMap(t=>cats.map(c=>total(t.team_id,c)));const max=Math.max(1,...all.map(Math.abs)),norm=n=>.5+.47*Math.max(-1,Math.min(1,n/max));const shapes=list.length?list.map((p,i)=>`<polygon class="pe-shape" style="fill:${['#4566dc','#b37e50','#6c8e9f','#8975b8'][i]};stroke:${['#4566dc','#b37e50','#6c8e9f','#8975b8'][i]};fill-opacity:.05;stroke-dasharray:${i%2?'5 3':'none'}" points="${poly(c=>norm(p.z_scores?.[c]??0))}"/>`).join(''):`<polygon class="pe-shape" points="${poly(c=>norm(total(team,c)))}"/>${other?`<polygon class="pe-other" points="${poly(c=>norm(total(other,c)))}"/>`:''}`;return `<svg class="pe-radar" viewBox="0 0 380 365" role="img" aria-label="Профиль категорий">${[.25,.5,.75,1].map(v=>`<polygon class="pe-grid" points="${poly(()=>v)}"/>`).join('')}${cats.map((c,i)=>{const [x,y]=point(i,1),[tx,ty]=point(i,1.22);return `<line class="pe-axis" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/><text x="${tx}" y="${ty+4}" text-anchor="middle" opacity="${punts().includes(c)?.4:1}">${E(c)}</text>`;}).join('')}${shapes}</svg>`;}
 function compareButton(p){if(s.page!=='players')return '';const active=s.comparePlayers.includes(id(p));return `<button class="bf-compare-pick" data-compare="${E(id(p))}" aria-label="${tr('Сравнить','Compare')} ${E(p.name)}" aria-pressed="${active}">${active?'✓':'+'}</button>`;}
-function ptable(ps,{compact=false,free=false}={}){const columns=compact?['PTS','REB','AST']:s.columns,showTeam=!compact&&!free&&s.page==='players',values=compact?'raw':s.values,sortValues=compact?'raw':s.sortValues;const f=s.sort;ps=[...ps].sort((a,b)=>s.direction*(f==='name'?a.name.localeCompare(b.name):f==='z'?z(a)-z(b):(sortValues==='z'?a.z_scores?.[f]??0:a.stats?.[f]??0)-(sortValues==='z'?b.z_scores?.[f]??0:b.stats?.[f]??0)));const th=(c,l)=>`<th><button class="pe-sort" data-sort="${c}">${E(l)}${s.sort===c?s.direction===-1?' ↓':' ↑':''}</button></th>`;return `<div class="pe-table-wrap"><table class="bf-players ${compact?'compact':''}" style="--table-width:${210+(showTeam?160:0)+76+columns.length*73}px"><colgroup><col style="width:${compact?'40%':'210px'}">${showTeam?'<col style="width:160px">':''}<col style="width:${compact?'15%':'76px'}">${columns.map(()=>`<col style="width:${compact?'15%':'73px'}">`).join('')}</colgroup><thead><tr>${th('name',tr('Игрок','Player'))}${showTeam?`<th>${tr('Команда','Team')}</th>`:''}${th('z','Z-score')}${columns.map(c=>th(c,c)).join('')}</tr></thead><tbody>${ps.map(p=>{knownPlayers.set(id(p),p);return `<tr><td><div class="pe-entity">${compareButton(p)}<div>${link(p.name,'player',id(p))}<span class="pe-subname">${E(p.position)} · ${E(p.nba_team)}${p.is_ir?' · IR':''} ${healthLabel(p)!=='Здоров'?health(p):''}</span></div></div></td>${showTeam?`<td>${link(p.fantasy_team,'team',p.fantasy_team_id)}</td>`:''}<td style="${tone(z(p),10)}">${fmt(z(p))}</td>${columns.map(c=>`<td style="${tone(p.z_scores?.[c])}" class="${punts().includes(c)?'bf-punted':''}">${values==='z'?fmt(p.z_scores?.[c]):stat(p.stats?.[c],c)}</td>`).join('')}</tr>`;}).join('')}</tbody></table>${!ps.length?blank(tr('Игроков нет','No players')):''}</div>`;}
+const compactPlayerColumns=['PTS','REB','AST'];
+const sortArrow=direction=>direction===-1?'↓':'↑';
+const sortOrder=(columns,direction)=>columns.length>1?'other':direction===-1?'descending':'ascending';
+
+function nextPlayerSort(selected,direction,column,add,metrics,defaultDirection=-1){
+ if(!add||!metrics.includes(column)){
+  return {sortColumns:[column],direction:selected.length===1&&selected[0]===column?-direction:defaultDirection};
+ }
+ const active=selected.filter(key=>metrics.includes(key));
+ if(!active.includes(column))return {sortColumns:[...active,column],direction:active.length?direction:-1};
+ return {sortColumns:active.length===1?active:active.filter(key=>key!==column),direction};
+}
+
+function visiblePlayerSort(columns){
+ return s.sortColumns.filter(column=>column==='name'||column==='z'||columns.includes(column));
+}
+
+function playerSortFormula(columns,direction){
+ return columns.length>1?`<caption class="bf-sort-formula">${E(columns.join(' + '))} ${sortArrow(direction)}</caption>`:'';
+}
+
+function ptable(ps,{compact=false,free=false}={}){
+ const columns=compact?compactPlayerColumns:s.columns;
+ const showTeam=!compact&&!free&&s.page==='players';
+ const values=compact?'raw':s.values;
+ const visible=visiblePlayerSort(columns);
+ const active=visible.length?visible:['z'],direction=visible.length?s.direction:-1;
+ const score=p=>active[0]==='z'?z(p):sum(active,c=>{
+  const value=values==='z'?p.z_scores?.[c]:p.stats?.[c];
+  return values==='raw'&&c.includes('%')?value*100:value;
+ });
+ const ordered=[...ps].sort((a,b)=>direction*(active[0]==='name'?a.name.localeCompare(b.name):score(a)-score(b)));
+ const heading=(c,label)=>{
+  const selected=active.includes(c);
+  const sort=c===active[0]?` aria-sort="${sortOrder(active,direction)}"`:'';
+  const hint=columns.includes(c)?` title="${tr('Shift + клик — добавить к сумме или убрать','Shift-click to add or remove from the sum')}"`:'';
+  return `<th${sort}><button class="pe-sort" data-sort="${E(c)}" aria-pressed="${selected}"${hint}>${E(label)}${c===active[0]?' '+sortArrow(direction):selected?' +':''}</button></th>`;
+ };
+ const rows=ordered.map(p=>{
+  knownPlayers.set(id(p),p);
+  return `<tr><td><div class="pe-entity">${compareButton(p)}<div>${link(p.name,'player',id(p))}<span class="pe-subname">${E(p.position)} · ${E(p.nba_team)}${p.is_ir?' · IR':''} ${healthLabel(p)!=='Здоров'?health(p):''}</span></div></div></td>
+  ${showTeam?`<td>${link(p.fantasy_team,'team',p.fantasy_team_id)}</td>`:''}<td style="${tone(z(p),10)}">${fmt(z(p))}</td>
+  ${columns.map(c=>`<td style="${tone(p.z_scores?.[c])}" class="${punts().includes(c)?'bf-punted':''}">${values==='z'?fmt(p.z_scores?.[c]):stat(p.stats?.[c],c)}</td>`).join('')}</tr>`;
+ }).join('');
+ return `<div class="pe-table-wrap"><table class="bf-players ${compact?'compact':''}" style="--table-width:${210+(showTeam?160:0)+76+columns.length*73}px">
+  ${playerSortFormula(active,direction)}
+  <colgroup><col style="width:${compact?'40%':'210px'}">${showTeam?'<col style="width:160px">':''}<col style="width:${compact?'15%':'76px'}">${columns.map(()=>`<col style="width:${compact?'15%':'73px'}">`).join('')}</colgroup>
+  <thead><tr>${heading('name',tr('Игрок','Player'))}${showTeam?`<th>${tr('Команда','Team')}</th>`:''}${heading('z','Z-score')}${columns.map(c=>heading(c,c)).join('')}</tr></thead>
+  <tbody>${rows}</tbody></table>${!ps.length?blank(tr('Игроков нет','No players')):''}</div>`;
+}
 function valuesControls(){return `<div class="pe-row">${segment([['raw','Статистика'],['z','Z-score']],'values')}${button('Колонки','columns')}</div>`;}
 function forecastSummary(team){const r=resource(seasonPath()),t=r.data?.standings.find(t=>t.team_id===team);return `<button class="bf-forecast-inline" data-action="forecast"><strong>${t?.projected_position??'—'}</strong><span>${tr('Прогноз места','Projected rank')}</span></button>`;}
 function categoryDistributionTone(value,values,reverse=false){

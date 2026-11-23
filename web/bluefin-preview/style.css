@@ -80,6 +80,7 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-players td:first-child .pe-name{white-space:normal;overflow-wrap:anywhere}
 #paper-exploration .bf-players .pe-subname{white-space:nowrap;height:19px;display:flex;align-items:center;gap:5px}
 #paper-exploration .bf-players .bf-status{font-size:9px;padding:0 4px;line-height:15px;height:17px}
+#paper-exploration .bf-sort-formula{text-align:left;padding:0 7px 6px;color:var(--pe-blue);font-size:11px}
 #paper-exploration .bf-compare-pick{border:1px solid var(--pe-line);color:var(--pe-muted);background:transparent;width:21px;height:21px;border-radius:50%;flex:0 0 21px;padding:0;font-size:13px}
 #paper-exploration .bf-compare-pick[aria-pressed=true]{background:#4566dc17;color:var(--pe-blue);border-color:#4566dc66}
 #paper-exploration .bf-category{min-width:0!important}
@@ -123,12 +124,17 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-match-title a{min-width:0;white-space:normal;overflow-wrap:anywhere}
 #paper-exploration .bf-match-title a:last-child{text-align:right}
 #paper-exploration .bf-match-category th{white-space:normal;overflow-wrap:anywhere}
-#paper-exploration .bf-match-odds{--odds-ahead:var(--pe-blue);--odds-behind:light-dark(#80552e,#c18a58);border:1px solid var(--pe-line);border-radius:6px;padding:20px 24px 14px;margin:0 0 24px;}
+#paper-exploration .bf-match-category,#paper-exploration .bf-match-odds{--match-own:var(--pe-blue);--match-opponent:light-dark(#80552e,#c18a58)}
+#paper-exploration .bf-match-win-own{--match-winner:var(--match-own)}
+#paper-exploration .bf-match-win-opponent{--match-winner:var(--match-opponent)}
+#paper-exploration .pe-app:not([data-coloring=none]) .bf-match-category td{color:var(--match-winner,var(--pe-ink))}
+#paper-exploration .pe-app[data-coloring=full] .bf-match-category :is(.bf-match-win-own,.bf-match-win-opponent){background:color-mix(in srgb,var(--match-winner) 17%,transparent)}
+#paper-exploration .bf-match-odds{border:1px solid var(--pe-line);border-radius:6px;padding:20px 24px 14px;margin:0 0 24px;}
 #paper-exploration .bf-match-odds h3{margin:0 0 10px;font-size:16px;font-weight:600;letter-spacing:-.015em}
 #paper-exploration .bf-odds-legend{display:flex;gap:8px 20px;flex-wrap:wrap;margin-bottom:15px;color:var(--pe-muted)}
 #paper-exploration .bf-odds-legend span{display:inline-flex;gap:7px;align-items:center}
-#paper-exploration .bf-odds-legend span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--odds-ahead);flex:none}
-#paper-exploration .bf-odds-legend span:last-child::before{background:var(--odds-behind)}
+#paper-exploration .bf-odds-legend span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--match-own);flex:none}
+#paper-exploration .bf-odds-legend span:last-child::before{background:var(--match-opponent)}
 #paper-exploration .bf-odds-plot{display:grid;grid-template-columns:38px minmax(0,1fr);gap:4px 8px}
 #paper-exploration .bf-odds-scale{display:flex;flex-direction:column;justify-content:space-between;text-align:right;color:var(--pe-muted);font-size:11px;line-height:11px;font-variant-numeric:tabular-nums}
 #paper-exploration .bf-odds-scale strong{color:var(--pe-ink);font-weight:600}
@@ -137,15 +143,15 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-odds-canvas svg{display:block;width:100%;height:100%;overflow:visible}
 #paper-exploration .bf-odds-grid{stroke:var(--pe-line);vector-effect:non-scaling-stroke}
 #paper-exploration .bf-odds-parity{stroke:var(--pe-muted);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}
-#paper-exploration .bf-odds-gradient-ahead{stop-color:var(--odds-ahead)}
-#paper-exploration .bf-odds-gradient-behind{stop-color:var(--odds-behind)}
+#paper-exploration .bf-odds-gradient-ahead{stop-color:var(--match-own)}
+#paper-exploration .bf-odds-gradient-behind{stop-color:var(--match-opponent)}
 #paper-exploration .bf-odds-area-ahead{fill:url(#bf-odds-good)}
 #paper-exploration .bf-odds-area-behind{fill:url(#bf-odds-bad)}
 #paper-exploration .bf-odds-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
-#paper-exploration .bf-odds-ahead{stroke:var(--odds-ahead)}
-#paper-exploration .bf-odds-behind{stroke:var(--odds-behind)}
-#paper-exploration [data-odds-mark]{--mark-color:var(--odds-ahead);position:absolute;border-radius:50%;width:4px;height:4px;background:var(--mark-color);transform:translate(-50%,-50%);pointer-events:none}
-#paper-exploration [data-odds-mark][data-state=behind]{--mark-color:var(--odds-behind)}
+#paper-exploration .bf-odds-ahead{stroke:var(--match-own)}
+#paper-exploration .bf-odds-behind{stroke:var(--match-opponent)}
+#paper-exploration [data-odds-mark]{--mark-color:var(--match-own);position:absolute;border-radius:50%;width:4px;height:4px;background:var(--mark-color);transform:translate(-50%,-50%);pointer-events:none}
+#paper-exploration [data-odds-mark][data-state=behind]{--mark-color:var(--match-opponent)}
 #paper-exploration [data-odds-mark][data-state=level]{--mark-color:var(--pe-muted)}
 #paper-exploration [data-odds-mark].selected{width:10px;height:10px;border:2px solid var(--pe-bg);outline:1px solid var(--mark-color)}
 #paper-exploration .bf-odds-days{grid-column:2;height:19px;position:relative;color:var(--pe-muted);font-size:11px}
@@ -155,8 +161,7 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-odds-state{display:flex;align-items:center;gap:12px;min-height:56px;margin:0;color:var(--pe-muted)}
 #paper-exploration .bf-odds-readout{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 20px;padding:9px 12px;background:var(--pe-soft);border-radius:4px;font-variant-numeric:tabular-nums}
 #paper-exploration .bf-odds-readout>*{min-width:0;overflow-wrap:anywhere}
-#paper-exploration .bf-odds-readout span,#paper-exploration .bf-odds-source{color:var(--pe-muted)}
-#paper-exploration .bf-odds-source{font-size:11px;margin:8px 0 0}
+#paper-exploration .bf-odds-readout span{color:var(--pe-muted)}
 @media(max-width:600px){
  #paper-exploration .bf-match-odds{padding:14px 12px 12px}
  #paper-exploration .bf-odds-plot{grid-template-columns:29px minmax(0,1fr);column-gap:6px}

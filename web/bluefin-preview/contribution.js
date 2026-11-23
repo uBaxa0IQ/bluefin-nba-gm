@@ -1,6 +1,6 @@
 'use strict';
 
-const contribution={key:null,version:0,job:null,error:'',expanded:null,sort:'win_delta',direction:-1};
+const contribution={key:null,version:0,job:null,error:'',expanded:null,sortColumns:['win_delta'],direction:-1};
 function contributionParams(team){
  const custom={};
  if(s.rosterMode==='top_n')for(const t of teams)custom[t.team_id]=leagueSelected(t.team_id).map(p=>p.name).sort();
@@ -34,17 +34,25 @@ function contributionPage(team){
  const job=contribution.job,result=job?.result,error=contribution.error||(job?.status==='failed'?job.message:'');
  const rows=result?.players??[],byId=new Map(rows.map(r=>[r.player_id,r]));
  const ordered=[...rows.map(r=>roster(team).find(p=>+p.player_id===r.player_id)).filter(Boolean),...roster(team).filter(p=>!byId.has(+p.player_id))];
- const value=p=>{const row=byId.get(+p.player_id);return cats.includes(contribution.sort)?row?.category_deltas[contribution.sort]:row?.[contribution.sort];};
+ const {sortColumns:active,direction}=contribution;
+ const value=p=>{
+  const row=byId.get(+p.player_id);
+  const values=active.map(key=>cats.includes(key)?row?.category_deltas?.[key]:row?.[key]);
+  return values.every(finite)?values.reduce((a,b)=>a+b,0):null;
+ };
  ordered.sort((a,b)=>{
-  if(contribution.sort==='name')return contribution.direction*a.name.localeCompare(b.name);
+  if(active[0]==='name')return direction*a.name.localeCompare(b.name);
   const av=value(a),bv=value(b);
   if(!finite(av)||!finite(bv))return Number(finite(bv))-Number(finite(av))||a.name.localeCompare(b.name);
-  return contribution.direction*(av-bv)||a.name.localeCompare(b.name);
+  return direction*(av-bv)||a.name.localeCompare(b.name);
  });
- const heading=(key,label,title='')=>{const active=contribution.sort===key;return `<th class="${punts().includes(key)?'bf-punted':''}" aria-sort="${active?(contribution.direction===-1?'descending':'ascending'):'none'}" title="${E(title)}"><button class="pe-sort" data-action="contribution-sort" data-key="${E(key)}">${E(label)}${active?(contribution.direction===-1?' ↓':' ↑'):''}</button></th>`;};
+ const heading=(key,label,title='')=>{
+  const selected=active.includes(key),sort=key===active[0]?` aria-sort="${sortOrder(active,direction)}"`:'';
+  return `<th class="${punts().includes(key)?'bf-punted':''}"${sort} title="${E(title)}"><button class="pe-sort" data-action="contribution-sort" data-key="${E(key)}" aria-pressed="${selected}">${E(label)}${key===active[0]?' '+sortArrow(direction):selected?' +':''}</button></th>`;
+ };
  const unit=tr('п.п.','pp'),tip=tr('С игроком минус без игрока. Категории — среднее по оставшимся матчапам, в п.п.; победы — за остаток регулярки.','With player minus without player. Categories: average across remaining matchups in pp; wins: remaining regular season.');
  const cells=row=>cats.map(c=>`<td class="${punts().includes(c)?'bf-punted':''}" style="${tone(row.category_deltas[c]*100/5)}">${contributionSigned(row.category_deltas[c]*100)}</td>`).join('');
- return `<div class="pe-controls pe-row bf-between">${job?.status==='running'?`<span class="pe-muted" role="status">${result?`${rows.length} / ${roster(team).length}`:'…'}</span>`:''}</div>${error?`<div class="pe-error" role="alert">${E(error)} <button class="pe-link" data-action="contribution-retry">${tr('Повторить','Retry')}</button></div>`:''}<div class="pe-table-wrap"><table class="bf-contribution-table" style="--contribution-width:${210+cats.length*72+3*100}px"><thead><tr>${heading('name',tr('Игрок','Player'))}${cats.map(c=>heading(c,c,tip)).join('')}${heading('win_delta',tr('Δ побед','Δ wins'))}${heading('playoff_delta',tr('Плей-офф','Playoffs')+', '+unit)}${heading('rank_delta',tr('Δ места','Δ rank'),tr('Ожидаемое место без игрока минус с игроком','Expected rank without player minus with player'))}</tr></thead><tbody>${ordered.map(p=>{
+ return `<div class="pe-controls pe-row bf-between">${job?.status==='running'?`<span class="pe-muted" role="status">${result?`${rows.length} / ${roster(team).length}`:'…'}</span>`:''}</div>${error?`<div class="pe-error" role="alert">${E(error)} <button class="pe-link" data-action="contribution-retry">${tr('Повторить','Retry')}</button></div>`:''}<div class="pe-table-wrap"><table class="bf-contribution-table" style="--contribution-width:${210+cats.length*72+3*100}px">${playerSortFormula(active,direction)}<thead><tr>${heading('name',tr('Игрок','Player'))}${cats.map(c=>heading(c,c,tip)).join('')}${heading('win_delta',tr('Δ побед','Δ wins'))}${heading('playoff_delta',tr('Плей-офф','Playoffs')+', '+unit)}${heading('rank_delta',tr('Δ места','Δ rank'),tr('Ожидаемое место без игрока минус с игроком','Expected rank without player minus with player'))}</tr></thead><tbody>${ordered.map(p=>{
   const row=byId.get(+p.player_id),active=s.overlay==='contribution-player'&&contribution.expanded===+p.player_id;
   return `<tr class="${active?'bf-contribution-selected':''}" ${row?`data-action="contribution-player" data-player="${p.player_id}"`:""}><th scope="row"><button class="bf-prob-team" data-action="contribution-player" data-player="${p.player_id}" aria-haspopup="dialog" aria-expanded="${active}" ${row?'':'disabled'}>${E(p.name)}</button>${row&&!row.games?`<span class="pe-subname">${tr('Нет выходов в расчёте','No scheduled starts')}</span>`:''}</th>${row?`${cells(row)}<td style="${tone(row.win_delta)}">${contributionSigned(row.win_delta,2)}</td><td style="${tone(row.playoff_delta*100/5)}">${contributionSigned(row.playoff_delta*100)}</td><td style="${tone(row.rank_delta)}">${contributionSigned(row.rank_delta)}</td>`:cats.map(c=>`<td class="${punts().includes(c)?'bf-punted':''}">…</td>`).join('')+'<td>…</td><td>…</td><td>…</td>'}</tr>`;
  }).join('')}</tbody></table></div>`;
@@ -54,8 +62,8 @@ app.addEventListener('click',event=>{
  if(el.dataset.action==='contribution-sort'){
   const key=el.dataset.key;
   if(!['name','win_delta','playoff_delta','rank_delta',...cats].includes(key))return;
-  contribution.direction=contribution.sort===key?-contribution.direction:key==='name'?1:-1;
-  contribution.sort=key;render();
+  Object.assign(contribution,nextPlayerSort(contribution.sortColumns,contribution.direction,key,event.shiftKey,cats,key==='name'?1:-1));
+  render();
  }
  if(el.dataset.action==='contribution-player'){contribution.expanded=+el.dataset.player;s.overlay='contribution-player';render();}
  if(el.dataset.action==='contribution-retry')void contributionRun(s.team);

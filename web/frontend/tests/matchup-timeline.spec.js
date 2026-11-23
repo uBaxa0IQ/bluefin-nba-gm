@@ -18,7 +18,11 @@ test('shows both sides of momentum with game-level odds in the matchup dialog', 
             '/api/bluefin/matchups': { matchups: [{ team1_id: 2, team2_id: 1, team1: opponent, team2: 'Team A',
                 week: 1, score: { formatted: '0-1' } }] },
             '/api/dashboard/1/matchup-details': { my_team: { id: 1, name: 'Team A' }, opponent: { id: 2, name: opponent },
-                score: '1-0-0', categories: [{ category: 'PTS', my_value: 15, opponent_value: 12, winner: 'my_team' }] },
+                score: '1-1-1', categories: [
+                    { category: 'PTS', my_value: 15, opponent_value: 12, winner: 'my_team' },
+                    { category: 'BLK', my_value: 1, opponent_value: 4, winner: 'opponent' },
+                    { category: 'REB', my_value: 7, opponent_value: 7, winner: 'tie' },
+                ] },
             '/api/dashboard/1/matchup-timeline': { points },
         }[url.pathname];
         return route.fulfill({ json: data ?? {} });
@@ -37,6 +41,15 @@ test('shows both sides of momentum with game-level odds in the matchup dialog', 
     await expect(dialog.locator('[data-odds-label]')).toContainText('DET @ ATL');
     await expect(dialog.locator('[data-odds-value]')).toContainText(`${opponent} 70.0%`);
     await expect(dialog.getByRole('cell', { name: 'PTS' })).toBeVisible();
+    await expect(dialog.getByText(/Реконструкция по завершённым играм/)).toHaveCount(0);
+    const ownWin = dialog.locator('.bf-match-win-own');
+    const opponentWin = dialog.locator('.bf-match-win-opponent');
+    await expect(ownWin).toHaveText('15.0');
+    await expect(opponentWin).toHaveText('4.00');
+    await expect(ownWin).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(opponentWin).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(dialog.getByRole('row', { name: /REB/ }).getByRole('cell').nth(1))
+        .toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(plot).toBeVisible();
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
