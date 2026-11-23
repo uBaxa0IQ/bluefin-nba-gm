@@ -207,7 +207,8 @@ def load_inputs(path):
     data['weeks'] = [decode_week(w) for w in data['weeks']]
     if (post := data.get('postseason')) is not None:
         data['postseason'] = Postseason(tuple(
-            PlayoffRound(decode_week(r['plan']), r['start'], r['end'], tuple(map(tuple, r['official'])))
+            PlayoffRound(decode_week(r['plan']), r['start'], r['end'], tuple(map(tuple, r['official'])),
+                         {int(t): stats for t, stats in r.get('official_stats', {}).items()})
             for r in post['rounds']), tuple(post['seeds']), post['tie_category'])
     distributions = {int(pid): PlayerDistribution(d['samples'], d['weights'], d['source'])
                      for pid, d in data.pop('distributions').items()}

@@ -1,9 +1,13 @@
 """Advance the ESPN championship, placement and consolation brackets."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .monte_carlo import WeekPlan, category_arrays, compare_category_trials, sample_week_totals
+from .simulation import compare_category_stats
+
+
+POSTSEASON_RESULT_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -13,6 +17,7 @@ class PlayoffRound:
     end: str
     # (bracket, team IDs, official winner ID if already decided).
     official: tuple[tuple[str, int, int, int | None], ...] = ()
+    official_stats: dict[int, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -53,16 +58,24 @@ def simulate_playoffs(ids, orders, postseason, distributions, categories, revers
         def play(bracket, pairs):
             encounters = np.zeros((count, count), dtype=int)
             wins = np.zeros_like(encounters)
+            results = np.zeros((count, count, len(categories), 2), dtype=int)
+            category_samples = np.zeros_like(encounters)
             pairs_official = [(positions[a], positions[b], winner)
                               for kind, a, b, winner in round_.official if kind == bracket]
             entrants = ([(np.full(trials, a), np.full(trials, b), winner) for a, b, winner in pairs_official]
                         if pairs_official else [(a, b, None) for a, b in pairs])
             winners, losers = [], []
             for a, b, winner in entrants:
+                comparison = None
                 if winner is not None:
                     left = a == positions[winner]
+                    sa = round_.official_stats.get(ids[a[0]], {})
+                    sb = round_.official_stats.get(ids[b[0]], {})
+                    if all(c in sa and c in sb for c in categories):
+                        settled = compare_category_stats(sa, sb, categories, reverse_categories)['categories']
+                        comparison = np.array([{'win': 1, 'loss': -1, 'tie': 0}[settled[c]] for c in categories])
                 else:
-                    _, _, _, outcome = compare_category_trials(
+                    comparison, _, _, outcome = compare_category_trials(
                         stats[samples, a], stats[samples, b],
                         tie[samples, a] if tie is not None else None,
                         tie[samples, b] if tie is not None else None,
@@ -74,11 +87,25 @@ def simulate_playoffs(ids, orders, postseason, distributions, categories, revers
                 np.add.at(encounters, (a, b), 1)
                 np.add.at(encounters, (b, a), 1)
                 np.add.at(wins, (w, l), 1)
-            return winners, losers, [
-                {'team_id': ids[a], 'opponent_id': ids[b], 'p_meet': encounters[a, b] / trials,
-                 'p_win': wins[a, b] / encounters[a, b], 'bracket': bracket}
-                for a, b in zip(*encounters.nonzero())
-            ]
+                if comparison is not None:
+                    np.add.at(category_samples, (a, b), 1)
+                    np.add.at(category_samples, (b, a), 1)
+                    for left_team, right_team, signed in ((a, b, comparison), (b, a, -comparison)):
+                        np.add.at(results[..., 0], (left_team, right_team), signed > 0)
+                        np.add.at(results[..., 1], (left_team, right_team), signed < 0)
+            matches = []
+            for a, b in zip(*encounters.nonzero()):
+                played = int(encounters[a, b])
+                denominator = int(category_samples[a, b])
+                odds = {}
+                if denominator:
+                    for c, (won, lost) in zip(categories, results[a, b]):
+                        odds[c] = {'p_win': won / denominator, 'p_loss': lost / denominator,
+                                   'p_tie': (denominator - won - lost) / denominator}
+                matches.append({'team_id': ids[a], 'opponent_id': ids[b], 'p_meet': played / trials,
+                                'p_win': wins[a, b] / played, 'samples': played, 'bracket': bracket,
+                                'categories': odds, 'official': bool(pairs_official)})
+            return winners, losers, matches
 
         tw, tl, title_matches = play('championship', title)
         pw, pl, placement_matches = play('placement', placement)
@@ -102,6 +129,7 @@ def simulate_playoffs(ids, orders, postseason, distributions, categories, revers
                 finishing[samples, team] = rank
         consolation = _next_ladder(cw, cl)
     return {
+        'version': POSTSEASON_RESULT_VERSION,
         'rounds': details,
         'official_seeds': {str(t): seed+1 for seed, t in enumerate(postseason.seeds)},
         'teams': [

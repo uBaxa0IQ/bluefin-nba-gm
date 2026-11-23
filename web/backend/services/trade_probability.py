@@ -1,4 +1,4 @@
-"""Paired regular-season forecasts for a proposed two-team trade."""
+"""Paired season and playoff forecasts for a proposed two-team trade."""
 from dataclasses import asdict, replace
 from datetime import datetime
 from time import perf_counter
@@ -70,8 +70,10 @@ def run_trade_probability(metadata, params, progress):
     if 'punt_team_id' in params:
         common['punt_team_id'] = params['punt_team_id']
     live = current_matchup(metadata, before_snapshot.current_matchup_period, before_snapshot.active_slots)
-    before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'], snapshot=before_snapshot, live_matchup=live)
-    after = prepare_season(metadata, **common, custom_rosters=after_custom, snapshot=after_snapshot, live_matchup=live)
+    before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'],
+                            snapshot=before_snapshot, live_matchup=live, include_postseason=True)
+    after = prepare_season(metadata, **common, custom_rosters=after_custom,
+                           snapshot=after_snapshot, live_matchup=live, include_postseason=True)
     players = {p['player_id']: p for plan in (before, after) for p in plan['players']}
     progress('histories', 0, len(players))
     distributions, _ = build_distributions(list(players.values()), metadata.year,
@@ -87,7 +89,7 @@ def run_trade_probability(metadata, params, progress):
     cache_key = hashlib.sha256(json.dumps([metadata.league_id, metadata.year,
         analytics_version(metadata, stochastic=True, injury_aware=common['simulation_mode'] == INJURY_MODE),
         asdict(before['weeks'][0]) if before['weeks'] else None,
-        common, params['custom_rosters'],
+        common, params['custom_rosters'], before.get('postseason') is not None,
         params.get('seed', 20261116)], sort_keys=True).encode()).hexdigest()
     for label, prepared in (('before', before), ('after', after)):
         progress(label, 0, 3000, dict(result))
@@ -97,8 +99,12 @@ def run_trade_probability(metadata, params, progress):
                 categories=prepared['categories'], reverse_categories=prepared['reverse_categories'],
                 historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
                 matchup_tie_category=prepared.get('matchup_tie_category'), trials=3000, seed=params.get('seed', 20261116),
-                all_opponents=False, paired_draws=True)
+                all_opponents=False, paired_draws=True, postseason=prepared.get('postseason'))
             standings = category_probabilities(forecast)
+            playoff_teams = {team['team_id']: team for team in forecast.get('postseason', {}).get('teams', [])}
+            for team in standings:
+                playoff_team = playoff_teams.get(team['team_id'], {})
+                team.update(p_final=playoff_team.get('p_final'), p_title=playoff_team.get('p_title'))
             if label == 'before':
                 _before_cache[cache_key] = standings
                 if len(_before_cache) > 4:
@@ -109,4 +115,4 @@ def run_trade_probability(metadata, params, progress):
 
 
 trade_probability_jobs = ProbabilityJobs(ROOT / '.cache' / 'trade_probability', runner=run_trade_probability,
-                                       cache_revision='category-probabilities-v1')
+                                       cache_revision='trade-postseason-v1')

@@ -179,4 +179,4 @@ class ProbabilityJobs:
                     del self.jobs[next(iter(self.jobs))]
 
 
-probability_jobs = ProbabilityJobs(cache_revision='postseason-v1')
+probability_jobs = ProbabilityJobs(cache_revision='postseason-v2')

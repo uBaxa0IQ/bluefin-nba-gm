@@ -1,7 +1,7 @@
 'use strict';
 
-const probabilityStateKeys=['probTeam','probTeamView','probWeek','probOpponent','probView','probMatrixWeek','probRosterTeam','simMode'];
-Object.assign(s,{categoryMode:'averages',probTeam:null,probTeamView:'schedule',probWeek:null,probOpponent:null,probView:'ranks',probMatrixWeek:null,probRosterTeam:null});
+const probabilityStateKeys=['probTeam','probTeamView','probWeek','probOpponent','probView','probMatrixWeek','simMode'];
+Object.assign(s,{categoryMode:'averages',probTeam:null,probTeamView:'schedule',probWeek:null,probOpponent:null,probView:'ranks',probMatrixWeek:null});
 const probability={restored:false,restoring:false,job:null,result:null,params:null,resultVersion:null,busy:false,error:'',timer:null,expanded:null,autoTimer:null,refreshTimer:null,lastAttempt:null,autoKey:null};
 const probabilityPercent=p=>finite(p)?fmt(p*100,1)+'%':'—';
 const probabilityJobKey=()=>`bluefin-probabilistic-job:${settings.season.league_id}:${settings.season.year}`;
@@ -63,7 +63,18 @@ function tradeProbabilityPanel(){
   const rankDelta=a&&b?a.expected_rank-b.expected_rank:null;
   return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div><div><span>${tr('Плей-офф','Playoffs')}</span><strong>${a?probabilityPercent(a.p_playoffs):'…'} → ${b?probabilityPercent(b.p_playoffs):'…'}</strong>${delta!==null?`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`:''}</div></div></section>`;
  }).join('');
- return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-grid">${[+s.tradeMyTeam,+s.tradeTeam].map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></section>`;
+ const postseason=[+s.tradeMyTeam,+s.tradeTeam].map(team=>{
+  const a=job?.result?.before?.find(t=>t.team_id===team);
+  const b=job?.result?.after?.find(t=>t.team_id===team);
+  const show=(row,key)=>row?probabilityPercent(row[key]):job?.status==='complete'||error?'—':'…';
+  const metrics=[['p_final',tr('Финал','Final')],['p_title',tr('Титул','Title')]].map(([key,label])=>{
+   const delta=finite(a?.[key])&&finite(b?.[key])?(b[key]-a[key])*100:null;
+   return `<div><span>${label}</span><strong>${show(a,key)} → ${show(b,key)}</strong>${delta===null?'':`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`}</div>`;
+  }).join('');
+  return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics">${metrics}</div></section>`;
+ }).join('');
+ return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-grid">${[+s.tradeMyTeam,+s.tradeTeam].map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></section>
+ <section class="bf-trade-prob bf-trade-playoffs"><div class="pe-section-head"><h2>${tr('Плей-офф','Playoffs')}</h2></div><div class="bf-trade-outcomes bf-trade-prob-impact">${postseason}</div></section>`;
 }
 
 function probabilityParams(){
@@ -134,7 +145,7 @@ function probabilityAuto(){
  const params=probabilityParams(),key=probabilitySettingsKey(params);
  const stamp=refresh.data?.data_version??refresh.data?.last_refresh_time??'';
  const needsPlayoffs=s.probView==='playoffs'&&probability.result&&
-  !probability.result.postseason&&!probability.result.postseason_error;
+  probability.result.postseason?.version!==2&&!probability.result.postseason_error;
  const stale=needsPlayoffs||!probability.result||!probability.params||probabilitySettingsKey(probability.params)!==key||
   (refresh.data?.data_version?probability.resultDataVersion!==stamp:(stamp&&Date.parse(stamp)>Date.parse(probability.resultVersion||probability.result.metadata.as_of)));
  const attempt=key+'|'+stamp+(needsPlayoffs?'|playoffs':'');
@@ -154,7 +165,16 @@ function probabilityViewMatch(match,team){
  return {...match,team1_id:match.team2_id,team2_id:match.team1_id,p_win:match.p_loss,p_loss:match.p_win,
   categories:Object.fromEntries(Object.entries(match.categories).map(([c,p])=>[c,{p_win:p.p_loss,p_tie:p.p_tie,p_loss:p.p_win}]))};
 }
-function probabilityCategories(match){return `<table class="bf-prob-categories"><thead><tr><th>${tr('Категория','Category')}</th><th>${tr('Победа','Win')}</th><th>${tr('Ничья','Tie')}</th><th>${tr('Поражение','Loss')}</th></tr></thead><tbody>${Object.entries(match.categories).map(([c,p])=>`<tr><td>${E(c)}</td><td style="${tone((p.p_win-.5)*6)}">${probabilityPercent(p.p_win)}</td><td>${probabilityPercent(p.p_tie)}</td><td style="${tone((.5-p.p_loss)*6)}">${probabilityPercent(p.p_loss)}</td></tr>`).join('')}</tbody></table>`;}
+function probabilityCategories(match){
+ const rows=Object.entries(match.categories).map(([category,p])=>{
+  const win=probabilityPercent(p.p_win),loss=probabilityPercent(p.p_loss);
+  const edge=win===loss?0:p.p_win-p.p_loss;
+  return `<tr><td>${E(category)}</td><td class="${edge>0?'bf-match-win-own':''}">${win}</td>
+   <td>${probabilityPercent(p.p_tie)}</td><td class="${edge<0?'bf-match-win-opponent':''}">${loss}</td></tr>`;
+ }).join('');
+ return `<table class="bf-prob-categories bf-match-category"><thead><tr><th>${tr('Категория','Category')}</th>
+  <th>${tr('Победа','Win')}</th><th>${tr('Ничья','Tie')}</th><th>${tr('Поражение','Loss')}</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 function probabilityTeamPanel(d){
  const team=d.standings.find(t=>t.team_id===+s.probTeam);if(!team)return '';
  const names=Object.fromEntries(d.standings.map(t=>[t.team_id,t.team_name]));
@@ -201,7 +221,7 @@ function probabilityOpponentResults(d){
  return `<div class="pe-table-wrap"><table class="bf-prob-opponents" style="--prob-width:${190+weeks.length*96}px" aria-label="${tr('Вероятность победы команды по неделям в матчах по расписанию','Team win probability by week in scheduled matchups')}"><colgroup><col style="width:190px">${weeks.map(()=>'<col style="width:96px">').join('')}</colgroup><thead><tr><th>${tr('Команда','Team')}</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function probabilityResults(d){
- const controls=`<div class="pe-controls bf-prob-view-controls">${segment([['ranks',tr('Места','Ranks')],['opponents',tr('Соперники','Opponents')],['playoffs',tr('Плей-офф','Playoffs')]],'probView')}<div class="pe-row"><button class="pe-link" data-action="prob-rosters">${tr('Составы расчёта','Calculation rosters')}</button></div></div>`;
+ const controls=`<div class="pe-controls">${segment([['ranks',tr('Места','Ranks')],['opponents',tr('Соперники','Opponents')],['playoffs',tr('Плей-офф','Playoffs')]],'probView')}</div>`;
  const views={ranks:probabilityRankResults,opponents:probabilityOpponentResults,playoffs:probabilityPlayoffResults};
  return controls+views[s.probView](d);
 }
@@ -220,7 +240,8 @@ function probabilityPlayoffResults(d){
  <colgroup><col style="width:34%"><col><col><col><col></colgroup>
  <thead><tr>${headers.map(h=>`<th scope="col">${E(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(t=>{
   const selected=t.team_id===+s.probTeam;
-  return `<tr class="${selected?'bf-prob-selected':''}"><td><button class="bf-prob-team" data-action="prob-team" data-team="${t.team_id}" aria-expanded="${selected}">${E(names[t.team_id])}</button></td>
+  return `<tr class="bf-click-row ${selected?'bf-prob-selected':''}" data-action="prob-team" data-team="${t.team_id}">
+  <td><button class="bf-prob-team" aria-expanded="${selected}">${E(names[t.team_id])}</button></td>
   ${[t.p_playoffs,t.p_semifinal,t.p_final].map(p=>`<td>${playoffPercent(p)}</td>`).join('')}
   <td style="${t.p_title?tone(t.p_title,highest):''}"><strong>${playoffPercent(t.p_title)}</strong></td></tr>`;
  }).join('')}</tbody></table></div>`;
@@ -228,30 +249,52 @@ function probabilityPlayoffResults(d){
  return table+(team?playoffTeamDetails(playoffs,team,names):'');
 }
 
-function playoffTeamDetails(playoffs,team,names){
- const roundNames=[tr('Четвертьфинал','Quarterfinal'),tr('Полуфинал','Semifinal'),tr('Финал','Final')];
+function playoffRoundName(i,branch){
+ if(branch!=='championship')return tr('Раунд ','Round ')+(i+1);
+ return [tr('Четвертьфинал','Quarterfinal'),tr('Полуфинал','Semifinal'),tr('Финал','Final')][i];
+}
+
+function playoffDateRange(round){
  const dateFormat=new Intl.DateTimeFormat(uiLocale(),{day:'numeric',month:'short',timeZone:'UTC'});
- const sections=playoffs.rounds.map((round,i)=>{
-  const from=new Date(round.start),to=new Date(round.end);
-  const dates=typeof dateFormat.formatRange==='function'?dateFormat.formatRange(from,to):
-   `${dateFormat.format(from)} – ${dateFormat.format(to)}`;
-  const matches=round.matchups.filter(m=>m.team_id===team.team_id).sort((a,b)=>b.p_meet-a.p_meet);
-  const list=items=>`<table class="bf-postseason-pairs"><thead><tr>
-    <th>${tr('Соперник','Opponent')}</th><th>${tr('Встреча','Meet')}</th><th title="${tr('Шанс победы при встрече','Win chance if they meet')}">${tr('Победа','Win')}</th>
-   </tr></thead><tbody>${items.map(m=>`<tr><td>${E(names[m.opponent_id])}</td><td>${playoffPercent(m.p_meet)}</td><td style="${tone((m.p_win-.5)*6)}">${playoffPercent(m.p_win)}</td></tr>`).join('')}</tbody></table>`;
-  const title=matches.filter(m=>m.bracket==='championship');
-  const lower=[['placement',tr('За места 3–8','Places 3–8')],['consolation',tr('Утешительная сетка','Consolation')]];
-  const placement=lower.map(([kind,label])=>{
-   const items=matches.filter(m=>m.bracket===kind);
-   return items.length?`<details class="bf-postseason-placement" ${title.length?'':'open'}><summary>${label}</summary>${list(items)}</details>`:'';
-  }).join('');
-  return `<section class="bf-postseason-round"><h3>${roundNames[i]}</h3><div class="pe-muted">${E(dates)}</div>
-   ${title.length?list(title):''}
-   ${placement}</section>`;
+ const from=new Date(round.start),to=new Date(round.end);
+ return typeof dateFormat.formatRange==='function'?dateFormat.formatRange(from,to):
+  `${dateFormat.format(from)} – ${dateFormat.format(to)}`;
+}
+
+function playoffTeamDetails(playoffs,team,names){
+ const branches=[
+  ['championship',tr('За титул','Championship')],
+  ['placement',tr('За места 3–8','Places 3–8')],
+  ['consolation',tr('Утешительная сетка','Consolation')],
+ ];
+ const schedule=playoffs.rounds.map(round=>({
+  ...round,
+  matchups:round.matchups.filter(m=>m.team_id===team.team_id),
+ }));
+ const available=branches.filter(([key])=>schedule.some(r=>r.matchups.some(m=>m.bracket===key)));
+ const branch=(available.find(([key])=>key===probability.playoffBranch)??available[0])?.[0];
+ const rounds=schedule.map((round,i)=>{
+  const matches=round.matchups.filter(m=>m.bracket===branch).sort((a,b)=>b.p_meet-a.p_meet);
+  return {...round,name:playoffRoundName(i,branch),matchups:matches,reach:sum(matches,m=>m.p_meet)};
  });
- return `<section class="bf-prob-team-panel"><div class="pe-section-head"><h2>${E(names[team.team_id])}</h2>
+ const selected=rounds.find(r=>r.week===probability.playoffRound&&r.matchups.length)??rounds.find(r=>r.matchups.length);
+ const title=`<div class="pe-section-head"><h2>${E(names[team.team_id])}</h2>
   <button class="pe-link" data-action="prob-close-team">${tr('Скрыть','Hide')}</button></div>
-  <div class="bf-postseason-rounds">${sections.join('')}</div></section>`;
+  ${available.length>1?`<div class="pe-segment bf-playoff-branches">${available.map(([key,label])=>
+   `<button data-action="playoff-branch" data-branch="${key}" aria-pressed="${key===branch}">${label}</button>`).join('')}</div>`:''}`;
+ const path=`<div class="bf-playoff-path" role="group" aria-label="${tr('Раунды','Rounds')}">${rounds.map(r=>
+  `<button class="bf-playoff-step" data-action="playoff-round" data-week="${r.week}" aria-pressed="${selected===r}" ${r.matchups.length?'':'disabled'}>
+   <span>${r.name}</span><small>${E(playoffDateRange(r))}</small>
+   <strong title="${tr('Шанс сыграть в этом раунде','Chance to play this round')}">${r.matchups.length?playoffPercent(r.reach):'—'}</strong>
+  </button>`).join('')}</div>`;
+ const pairings=selected?`<table class="bf-postseason-pairs" aria-label="${E(selected.name)}"><thead><tr>
+   <th>${tr('Соперник','Opponent')}</th><th>${tr('Шанс встречи','Chance to meet')}</th><th>${tr('Победа при встрече','Win if matched')}</th>
+  </tr></thead><tbody>${selected.matchups.map(m=>`<tr class="bf-click-row" data-action="playoff-pair"
+   data-team="${team.team_id}" data-opponent="${m.opponent_id}" data-week="${selected.week}" data-branch="${branch}">
+   <td><button class="bf-prob-team" aria-haspopup="dialog">${E(names[m.opponent_id])}</button></td>
+   <td>${playoffPercent(m.p_meet)}</td><td style="${tone((m.p_win-.5)*6)}">${playoffPercent(m.p_win)}</td>
+  </tr>`).join('')}</tbody></table>`:'';
+ return `<section class="bf-prob-team-panel bf-playoff-team">${title}${path}${pairings}</section>`;
 }
 function probabilityOpenPair(team,opponent,week){
  const d=probabilityCurrentResult();if(!d||team===opponent)return;
@@ -261,18 +304,40 @@ function probabilityOpenPair(team,opponent,week){
  probability.matchDetail={week,match:probabilityViewMatch(match,team),standings:d.standings};
  s.overlay='prob-match';render();
 }
+function openPlayoffPair({team,opponent,week,branch}){
+ const d=probabilityCurrentResult();
+ const index=d?.postseason?.rounds.findIndex(r=>r.week===+week)??-1;
+ if(index<0)return;
+ const round=d.postseason.rounds[index];
+ const match=round.matchups.find(m=>m.team_id===+team&&m.opponent_id===+opponent&&m.bracket===branch);
+ if(!match)return;
+ probability.matchDetail={match:{...match,team1_id:+team,team2_id:+opponent},standings:d.standings,
+  roundName:playoffRoundName(index,branch),date:playoffDateRange(round),trials:d.trials};
+ s.overlay='prob-match';
+ render();
+ app.querySelector('dialog [data-action="close"]')?.focus({preventScroll:true});
+}
+
+function probabilityMatchTitle(){
+ const detail=probability.matchDetail;
+ return detail?.roundName??(tr('Матчап · неделя ','Matchup · week ')+detail?.week);
+}
+
 function probabilityMatchDialog(){
  const detail=probability.matchDetail;if(!detail)return '';
  const {match,week,standings}=detail;
  const name=id=>standings.find(t=>t.team_id===id)?.team_name??'';
+ if(detail.roundName){
+  const categories=Object.keys(match.categories??{}).length?probabilityCategories(match):'';
+  return `<div class="bf-prob-match-title bf-playoff-match-title">
+   <span>${E(name(match.team1_id))}<strong class="bf-match-win-own">${playoffPercent(match.p_win)}</strong></span>
+   <span>${E(name(match.team2_id))}<strong class="bf-match-win-opponent">${playoffPercent(1-match.p_win)}</strong></span></div>
+   <div class="bf-prob-chances"><span>${E(detail.date)}</span>
+   ${match.official?'':`<span>${tr('Шанс встречи','Chance to meet')} <strong>${playoffPercent(match.p_meet)}</strong></span>`}
+   ${match.samples<100?`<span>${match.samples} / ${detail.trials} ${tr('прогонов','trials')}</span>`:''}</div>
+   ${categories}`;
+ }
  return `<div class="bf-prob-match-title"><span>${E(name(match.team1_id))}</span><span>${E(name(match.team2_id))}</span></div><div class="bf-prob-chances"><span>${tr('Победа','Win')} <strong>${probabilityPercent(match.p_win)}</strong></span><span>${tr('Ничья','Tie')} <strong>${probabilityPercent(match.p_tie)}</strong></span><span>${tr('Поражение','Loss')} <strong>${probabilityPercent(match.p_loss)}</strong></span><small>${match.official?tr('Матч по расписанию','Scheduled matchup'):tr('Гипотетический матч этой недели','Hypothetical matchup for this week')}</small></div>${probabilityCategories(match)}`;
-}
-function probabilityRosterDialog(){
- const d=probability.rosterResult;if(!d)return '';
- const available=d.standings;
- const team=available.find(t=>t.team_id===+s.probRosterTeam)??available.find(t=>t.team_id===myTeam)??available[0];
- const names=d.metadata.rosters?.[team.team_id];
- return `<div class="pe-section-head"><select class="pe-select" data-control="probRosterTeam" aria-label="${tr('Команда в расчёте','Team in calculation')}">${available.map(t=>`<option value="${t.team_id}" ${t===team?'selected':''}>${E(t.team_name)}</option>`).join('')}</select>${names?`<span class="pe-muted">${names.length}</span>`:''}</div>${names?`<ul class="bf-prob-roster-list" aria-label="${tr('Игроки в расчёте','Players in calculation')}">${names.map(name=>`<li>${E(name)}</li>`).join('')}</ul>`:blank(tr('Состав этого расчёта недоступен','The roster for this calculation is unavailable'))}`;
 }
 function teamCategories(team){
  const controls=`<div class="pe-controls pe-row">${segment([['averages',tr('Средние','Averages')],['probability',tr('Вероятности','Probabilities')]],'categoryMode')}</div>`;
@@ -307,7 +372,7 @@ function teamCategories(team){
 }
 function probabilityMaintain(){
  const currentResult=probabilityCurrentResult();
- if(!currentResult&&['prob-match','prob-rosters'].includes(s.overlay))s.overlay=null;
+ if(!currentResult&&s.overlay==='prob-match')s.overlay=null;
  if(!probability.restored)void probabilityRestore();
  probabilityAuto();
  if(!probability.refreshTimer)probability.refreshTimer=setTimeout(()=>{
@@ -326,14 +391,26 @@ app.addEventListener('click',event=>{
  const el=event.target.closest('[data-action]');if(!el||el.disabled)return;
  if(el.dataset.action==='prob-run')void probabilityRun();
  if(el.dataset.action==='prob-restore'){probability.error='';void probabilityRestore();}
- if(el.dataset.action==='prob-team'){s.probTeam=+s.probTeam===+el.dataset.team?null:+el.dataset.team;probability.expanded=null;save();render();}
+ if(el.dataset.action==='prob-team'){
+  const playoffs=el.closest('.bf-postseason-matrix');
+  s.probTeam=+s.probTeam===+el.dataset.team?null:+el.dataset.team;
+  probability.expanded=null;
+  if(playoffs){probability.playoffBranch=null;probability.playoffRound=null;}
+  save();render();
+  if(playoffs&&s.probTeam)app.querySelector('.bf-playoff-team')?.scrollIntoView({block:'start'});
+ }
  if(el.dataset.action==='prob-close-team'){s.probTeam=null;save();render();}
  if(el.dataset.action==='prob-match'){const key=`${el.dataset.week}:${el.dataset.opponent}`;probability.expanded=probability.expanded===key?null:key;render();}
  if(el.dataset.action==='prob-pair')probabilityOpenPair(+el.dataset.team,+el.dataset.opponent,+el.dataset.week);
- if(el.dataset.action==='prob-rosters'){
-  probability.rosterResult=probabilityCurrentResult();
-  if(!probability.rosterResult)return;
-  if(s.probTeam)s.probRosterTeam=s.probTeam;
-  s.overlay='prob-rosters';render();
+ if(el.dataset.action==='playoff-branch'){
+  probability.playoffBranch=el.dataset.branch;
+  render();
+  app.querySelector('.bf-playoff-branches [aria-pressed="true"]')?.focus({preventScroll:true});
  }
+ if(el.dataset.action==='playoff-round'){
+  probability.playoffRound=+el.dataset.week;
+  render();
+  app.querySelector('.bf-playoff-path [aria-pressed="true"]')?.focus({preventScroll:true});
+ }
+ if(el.dataset.action==='playoff-pair')openPlayoffPair(el.dataset);
 });

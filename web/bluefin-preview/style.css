@@ -26,7 +26,6 @@ html{scrollbar-gutter:stable}
 .bf-trade-prob-loading{min-height:180px;display:grid;place-items:center;color:var(--pe-muted)}
 @media(max-width:760px){.bf-trade-prob-grid{grid-template-columns:1fr}}
 #paper-exploration .bf-prob-matrix{width:max(100%,var(--prob-width));min-width:var(--prob-width)!important}
-#paper-exploration .bf-prob-view-controls{gap:16px;flex-wrap:wrap}
 #paper-exploration .bf-prob-opponents{width:max(100%,var(--prob-width));min-width:var(--prob-width)!important}
 #paper-exploration .bf-prob-opponents th,#paper-exploration .bf-prob-opponents td{text-align:center}
 #paper-exploration .bf-prob-opponents thead th{white-space:normal;overflow-wrap:anywhere;line-height:1.4;padding:12px 8px;vertical-align:bottom}
@@ -38,9 +37,7 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-prob-diagonal{color:var(--pe-muted)}
 #paper-exploration .bf-prob-match-title{display:flex;justify-content:space-between;gap:24px;font-size:18px}
 #paper-exploration .bf-prob-match-title>span:last-child{text-align:right}
-#paper-exploration .bf-prob-roster-list{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
-#paper-exploration .bf-prob-roster-list li{padding:12px 0;border-bottom:1px solid var(--pe-line);font-size:12px}
-@media(max-width:480px){#paper-exploration .bf-prob-match-title{font-size:15px}#paper-exploration .bf-prob-roster-list{grid-template-columns:1fr}}
+@media(max-width:480px){#paper-exploration .bf-prob-match-title{font-size:15px}}
 #paper-exploration .bf-prob-matrix td,#paper-exploration .bf-prob-matrix th{text-align:center}
 #paper-exploration .bf-prob-matrix td:first-child,#paper-exploration .bf-prob-matrix th:first-child{text-align:left;position:sticky;left:0;background:var(--pe-bg);z-index:1;padding-right:18px}
 #paper-exploration .bf-prob-team{border:0;background:none;text-align:left;padding:8px 0;color:inherit;font:inherit;cursor:pointer}
@@ -48,16 +45,20 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-prob-team-panel{border-top:1px solid var(--pe-line);margin-top:32px;padding-top:26px}
 #paper-exploration .bf-prob-team-panel>.pe-section-head h2{font-size:18px}
 #paper-exploration .bf-postseason-matrix td,#paper-exploration .bf-postseason-pairs td{font-variant-numeric:tabular-nums}
-#paper-exploration .bf-postseason-rounds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
-#paper-exploration .bf-postseason-round{min-width:0;border-top:1px solid var(--pe-line);padding-top:14px}
-#paper-exploration .bf-postseason-round h3{margin:0 0 3px;font-size:14px;font-weight:600}
-#paper-exploration .bf-postseason-pairs{min-width:0!important;margin-top:10px}
-#paper-exploration .bf-postseason-pairs th:first-child{width:55%}
-#paper-exploration .bf-postseason-pairs td{height:36px}
+#paper-exploration .bf-playoff-branches{margin:14px 0}
+#paper-exploration .bf-playoff-path{--stage-gap:24px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--stage-gap);margin:20px 0 24px}
+#paper-exploration .bf-playoff-step{position:relative;display:grid;gap:6px;justify-items:start;min-width:0;padding:14px 16px;border:1px solid var(--pe-line);background:var(--pe-bg);color:var(--pe-ink);font:inherit;text-align:left;cursor:pointer}
+#paper-exploration .bf-playoff-step:not(:last-child)::after{content:'';position:absolute;top:50%;left:100%;width:calc(var(--stage-gap) + 1px);height:1px;background:var(--pe-line);pointer-events:none}
+#paper-exploration .bf-playoff-step:hover:not(:disabled),#paper-exploration .bf-playoff-step[aria-pressed=true]{border-color:var(--pe-blue);color:var(--pe-blue)}
+#paper-exploration .bf-playoff-step[aria-pressed=true]{background:color-mix(in srgb,var(--pe-blue) 5%,var(--pe-bg))}
+#paper-exploration .bf-playoff-step:disabled{color:var(--pe-muted);cursor:default}
+#paper-exploration .bf-playoff-step small{color:var(--pe-muted);font-size:11px}
+#paper-exploration .bf-playoff-step strong{font-weight:500;font-size:19px;font-variant-numeric:tabular-nums}
+#paper-exploration .bf-postseason-pairs{width:100%;min-width:0!important;table-layout:fixed}
+#paper-exploration .bf-postseason-pairs th{white-space:normal}
+#paper-exploration .bf-postseason-pairs th:first-child{width:46%}
 #paper-exploration .bf-postseason-pairs td:first-child{overflow-wrap:anywhere}
-#paper-exploration .bf-postseason-placement{margin-top:12px;color:var(--pe-muted)}
-#paper-exploration .bf-postseason-placement summary{cursor:pointer}
-@media(max-width:880px){#paper-exploration .bf-postseason-rounds{grid-template-columns:1fr}}
+#paper-exploration .bf-playoff-match-title strong{display:block;margin-top:6px;font-weight:500;font-size:24px}
 @media(max-width:700px){
  #paper-exploration .pe-app:has(.bf-postseason-matrix) .pe-header{grid-template-columns:auto minmax(0,1fr)}
  #paper-exploration .pe-app:has(.bf-postseason-matrix) .pe-header-end{min-width:0;justify-content:flex-end}
@@ -69,6 +70,11 @@ html{scrollbar-gutter:stable}
  #paper-exploration .bf-postseason-matrix :is(th,td){padding-left:4px;padding-right:4px}
  #paper-exploration .bf-postseason-matrix :is(th,td):first-child{padding-right:8px}
  #paper-exploration .bf-postseason-matrix .bf-prob-team{overflow-wrap:anywhere}
+ #paper-exploration .bf-playoff-path{--stage-gap:9px}
+ #paper-exploration .bf-playoff-step{padding:10px 7px;font-size:11px;overflow-wrap:anywhere}
+ #paper-exploration .bf-playoff-step small{font-size:10px}
+ #paper-exploration .bf-playoff-step strong{font-size:16px}
+ #paper-exploration .bf-postseason-pairs th{font-size:10px}
 }
 #paper-exploration .bf-prob-schedule,#paper-exploration .bf-prob-categories{min-width:0!important;width:100%}
 #paper-exploration .bf-prob-schedule th:nth-child(2),#paper-exploration .bf-prob-schedule td:nth-child(2){text-align:left;width:32%}
@@ -147,10 +153,10 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-match-title a{min-width:0;white-space:normal;overflow-wrap:anywhere}
 #paper-exploration .bf-match-title a:last-child{text-align:right}
 #paper-exploration .bf-match-category th{white-space:normal;overflow-wrap:anywhere}
-#paper-exploration .bf-match-category,#paper-exploration .bf-match-odds{--match-own:var(--pe-blue);--match-opponent:light-dark(#80552e,#c18a58)}
+#paper-exploration :is(.bf-match-category,.bf-match-odds,.bf-playoff-match-title){--match-own:var(--pe-blue);--match-opponent:light-dark(#80552e,#c18a58)}
 #paper-exploration .bf-match-win-own{--match-winner:var(--match-own)}
 #paper-exploration .bf-match-win-opponent{--match-winner:var(--match-opponent)}
-#paper-exploration .pe-app:not([data-coloring=none]) .bf-match-category td{color:var(--match-winner,var(--pe-ink))}
+#paper-exploration .pe-app:not([data-coloring=none]) :is(.bf-match-category td,.bf-playoff-match-title strong){color:var(--match-winner,var(--pe-ink))}
 #paper-exploration .pe-app[data-coloring=full] .bf-match-category :is(.bf-match-win-own,.bf-match-win-opponent){background:color-mix(in srgb,var(--match-winner) 17%,transparent)}
 #paper-exploration .bf-match-odds{border:1px solid var(--pe-line);border-radius:6px;padding:20px 24px 14px;margin:0 0 24px;}
 #paper-exploration .bf-match-odds h3{margin:0 0 10px;font-size:16px;font-weight:600;letter-spacing:-.015em}

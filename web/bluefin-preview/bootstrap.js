@@ -41,7 +41,7 @@ app.addEventListener('click',async event=>{
 });
 app.addEventListener('change',async event=>{
  const el=event.target;
- if(el.dataset.control){const k=el.dataset.control,previous=s[k];s[k]=['mainTeam','team','compare','pickTeam','week','simWeek','weeksCount','calendarWeek','tradeTeam','tradeMyTeam','probWeek','probOpponent','probMatrixWeek','probRosterTeam'].includes(k)?(+el.value||null):el.value;
+ if(el.dataset.control){const k=el.dataset.control,previous=s[k];s[k]=['mainTeam','team','compare','pickTeam','week','simWeek','weeksCount','calendarWeek','tradeTeam','tradeMyTeam','probWeek','probOpponent','probMatrixWeek'].includes(k)?(+el.value||null):el.value;
   if(k==='tradeMyTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeTeam=previous;s.receive=[];}
   if(k==='tradeTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeMyTeam=previous;s.give=[];}
   if(k==='tradeTeam'||k==='tradeMyTeam'){if(k==='tradeTeam'){s.receive=[];s.receiveSearch='';s.rosterScroll.receive=0;}else{s.give=[];s.giveSearch='';s.rosterScroll.give=0;}invalidate();save();}
@@ -53,7 +53,7 @@ app.addEventListener('change',async event=>{
    if(s.page==='team')history.replaceState(null,'','#team/'+myTeam);
   }
   if(k==='team'){s.tab='overview';s.compare=null;}
-  if(['probWeek','probOpponent','probMatrixWeek','probRosterTeam'].includes(k))save();
+  if(['probWeek','probOpponent','probMatrixWeek'].includes(k))save();
   if(k==='simWeek')s.weeksCount=Math.min(s.weeksCount,s.simWeek);
   if(k==='theme')s.theme=applyTheme(s.theme);
   if(['lang','coloring','theme'].includes(k))save();

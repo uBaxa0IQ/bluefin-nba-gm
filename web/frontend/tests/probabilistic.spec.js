@@ -62,32 +62,56 @@ async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [
     return calls;
 }
 
-test('playoffs show title odds and round-specific opponents', async ({ page }) => {
+test('playoffs show the team path and open matchup details from any cell', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('bluefin-live-v1:123:2027', JSON.stringify({
         puntsEnabled: true, punts: ['3PM', '3PT%', 'FT%', 'PTS'],
     })));
     const team = { team_id: 1, p_playoffs: .8, p_semifinal: .6, p_final: .4, p_title: .3 };
     const postseason = {
+        version: 2,
         teams: [team, { ...team, team_id: 2, p_title: .15 }],
         rounds: [
             { week: 17, start: '2027-02-08', end: '2027-02-14', matchups: [
                 { team_id: 1, opponent_id: 2, p_meet: .4, p_win: .6, bracket: 'championship' },
                 { team_id: 1, opponent_id: 2, p_meet: .1, p_win: .2, bracket: 'consolation' },
             ] },
-            { week: 18, start: '2027-02-15', end: '2027-02-28', matchups: [] },
+            { week: 18, start: '2027-02-15', end: '2027-02-28', matchups: [
+                { team_id: 1, opponent_id: 2, p_meet: .25, p_win: .74, samples: 2500,
+                    bracket: 'championship', categories: {
+                        ...result.weeks[0].matchups[0].categories,
+                        STL: { p_win: .492, p_tie: .037, p_loss: .471 },
+                        BLK: { p_win: .470, p_tie: .044, p_loss: .486 },
+                        DD: { p_win: .45, p_tie: .10, p_loss: .45 },
+                    } },
+            ] },
             { week: 19, start: '2027-03-01', end: '2027-03-14', matchups: [] },
         ],
     };
     await setup(page, { forecastResult: { ...result, postseason } });
     await page.getByRole('button', { name: 'Плей-офф', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Составы расчёта' })).toHaveCount(0);
     const matrix = page.locator('.bf-postseason-matrix');
     await expect(matrix.getByRole('row', { name: /Team A/ })).toContainText('30.0%');
-    await matrix.getByRole('button', { name: 'Team A' }).click();
-    const round = page.locator('.bf-postseason-round').first();
-    await expect(round).toContainText('40.0%');
-    await expect(round).toContainText('60.0%');
-    await round.getByText('Утешительная сетка', { exact: true }).click();
-    await expect(round.getByRole('cell', { name: '20.0%', exact: true })).toBeVisible();
+    await matrix.getByRole('cell', { name: '30.0%', exact: true }).click();
+    const panel = page.locator('.bf-playoff-team');
+    await expect(panel.getByRole('heading', { name: 'Team A' })).toBeVisible();
+    await expect(panel.getByRole('table', { name: 'Четвертьфинал' })).toContainText('60.0%');
+    await panel.getByRole('button', { name: /Полуфинал/ }).click();
+    await panel.getByRole('cell', { name: '74.0%', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Полуфинал' });
+    await expect(modal).toContainText('Team B');
+    await expect(modal).toContainText('26.0%');
+    await expect(modal).toContainText('25.0%');
+    await expect(modal.getByRole('row', { name: /PTS/ })).toContainText('80.0%');
+    const ownColor = await modal.getByText('74.0%', { exact: true }).evaluate(el => getComputedStyle(el).color);
+    const opponentColor = await modal.getByText('26.0%', { exact: true }).evaluate(el => getComputedStyle(el).color);
+    await expect(modal.getByRole('cell', { name: '49.2%' })).toHaveCSS('color', ownColor);
+    await expect(modal.getByRole('cell', { name: '48.6%' })).toHaveCSS('color', opponentColor);
+    await expect(modal.getByRole('cell', { name: '47.1%' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(modal.getByRole('row', { name: /DD/ }).locator('.bf-match-win-own, .bf-match-win-opponent')).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Закрыть' }).click();
+    await panel.getByRole('button', { name: 'Утешительная сетка' }).click();
+    await expect(panel.getByRole('cell', { name: '20.0%', exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -237,17 +261,6 @@ test('weekly schedule matrix uses official row-team odds and opens categories wi
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test('calculation rosters show the archived players rather than the current browser selection', async ({ page }) => {
-    const calls = await setup(page);
-    await page.getByRole('button', { name: 'Составы расчёта', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.locator('.bf-prob-roster-list')).toContainText('Chet Holmgren');
-    await expect(dialog.locator('.bf-prob-roster-list')).not.toContainText('Player A');
-    await dialog.locator('[data-control="probRosterTeam"]').selectOption('2');
-    await expect(dialog.locator('.bf-prob-roster-list')).toContainText('Rudy Gobert');
-    expect(calls).toHaveLength(1);
-});
-
 test('saved trades stay in browser storage and load without evaluating the trade', async ({ page }) => {
     await setup(page);
     let evaluations = 0;
@@ -374,8 +387,10 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await setup(page);
     const team = { name: 'Team', before_z: 1, after_z: 2, delta: 1, categories: {}, raw_categories: {} };
     await page.route('**/api/bluefin/trade', route => route.fulfill({ json: { my_team: team, their_team: team } }));
-    const before = result.standings.map(t => ({ ...t, category_probabilities: { PTS: t.team_id === 1 ? .6 : .4, REB: t.team_id === 1 ? .8 : .2 } }));
+    const before = result.standings.map(t => ({ ...t, p_final: .2, p_title: .1,
+        category_probabilities: { PTS: t.team_id === 1 ? .6 : .4, REB: t.team_id === 1 ? .8 : .2 } }));
     const after = before.map(t => ({ ...t, expected_rank: t.expected_rank + .1, p_playoffs: .5,
+        p_final: t.team_id === 1 ? .25 : .17, p_title: t.team_id === 1 ? .12 : .09,
         rank_probabilities: { 1: .5, 2: .5 }, category_probabilities: { PTS: t.team_id === 1 ? .72 : .3, REB: t.team_id === 1 ? .75 : .35 } }));
     let release;
     const gate = new Promise(resolve => { release = resolve; });
@@ -397,11 +412,15 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await page.locator('[data-action="trade"]').click();
     await expect(page.locator('.bf-trade-prob svg')).toHaveCount(2);
     await expect(page.locator('.bf-trade-prob polyline')).toHaveCount(2);
-    await expect(page.locator('.bf-trade-prob-impact')).not.toContainText('Считаем');
+    await expect(page.locator('.bf-trade-prob-impact').first()).not.toContainText('Считаем');
     await page.locator('[data-set="tradeValues"][data-value="probability"]').click();
     await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '…', '…', '40.0%', '…', '…']);
     release();
     await expect(page.locator('.bf-trade-prob polyline')).toHaveCount(4);
+    const playoffs = page.locator('.bf-trade-playoffs');
+    await expect(playoffs.locator('section').first()).toContainText('20.0% → 25.0%');
+    await expect(playoffs.locator('section').first()).toContainText('+2.0 п.п.');
+    await expect(playoffs.locator('section').last()).toContainText('10.0% → 9.0%');
     await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '72.0%', '+12.0 п.п.', '40.0%', '30.0%', '-10.0 п.п.']);
     await page.locator('[data-set="tradeValues"][data-value="raw"]').click();
     await page.locator('[data-set="tradeValues"][data-value="probability"]').click();
