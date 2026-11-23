@@ -59,22 +59,16 @@ function tradeProbabilityPanel(){
  };
  const summary=[+s.tradeMyTeam,+s.tradeTeam].map(team=>{
   const a=before.find(t=>t.team_id===team),b=after.find(t=>t.team_id===team);
-  const delta=b&&a?(b.p_playoffs-a.p_playoffs)*100:null;
   const rankDelta=a&&b?a.expected_rank-b.expected_rank:null;
-  return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div><div><span>${tr('Плей-офф','Playoffs')}</span><strong>${a?probabilityPercent(a.p_playoffs):'…'} → ${b?probabilityPercent(b.p_playoffs):'…'}</strong>${delta!==null?`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`:''}</div></div></section>`;
- }).join('');
- const postseason=[+s.tradeMyTeam,+s.tradeTeam].map(team=>{
-  const a=job?.result?.before?.find(t=>t.team_id===team);
-  const b=job?.result?.after?.find(t=>t.team_id===team);
-  const show=(row,key)=>row?probabilityPercent(row[key]):job?.status==='complete'||error?'—':'…';
-  const metrics=[['p_final',tr('Финал','Final')],['p_title',tr('Титул','Title')]].map(([key,label])=>{
+  const show=(row,key)=>row&&key in row?probabilityPercent(row[key]):job?.status==='complete'||error?'—':'…';
+  const metrics=[['p_playoffs',tr('Плей-офф','Playoffs')],['p_final',tr('Финал','Final')],['p_title',tr('Титул','Title')]].map(([key,label])=>{
    const delta=finite(a?.[key])&&finite(b?.[key])?(b[key]-a[key])*100:null;
    return `<div><span>${label}</span><strong>${show(a,key)} → ${show(b,key)}</strong>${delta===null?'':`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`}</div>`;
   }).join('');
-  return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics">${metrics}</div></section>`;
+  return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div>${metrics}</div></section>`;
  }).join('');
  return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-grid">${[+s.tradeMyTeam,+s.tradeTeam].map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></section>
- <section class="bf-trade-prob bf-trade-playoffs"><div class="pe-section-head"><h2>${tr('Плей-офф','Playoffs')}</h2></div><div class="bf-trade-outcomes bf-trade-prob-impact">${postseason}</div></section>`;
+ `;
 }
 
 function probabilityParams(){

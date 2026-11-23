@@ -189,8 +189,7 @@ test('league averages and Z keep ordinary-slot OUT players and exclude actual IR
     await page.locator('[data-set="matrix"][data-value="value"]').click();
     const points = page.locator('.bf-matrix tbody tr').filter({ hasText: 'Team A' }).locator('td').nth(1);
     await expect(points).toHaveText(/^10(?:\.0+)?$/);
-    await page.locator('[data-set="matrixSource"][data-value="z"]').click();
-    await expect(points).toHaveText('1.00');
+    await expect(page.getByRole('button', { name: 'Z-score', exact: true })).toHaveCount(0);
 });
 
 test('team overview keeps seven rows and includes OUT players in ordinary slots', async ({ page }) => {
@@ -417,7 +416,9 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '…', '…', '40.0%', '…', '…']);
     release();
     await expect(page.locator('.bf-trade-prob polyline')).toHaveCount(4);
-    const playoffs = page.locator('.bf-trade-playoffs');
+    const playoffs = page.locator('.bf-trade-prob-impact');
+    await expect(playoffs.locator('section')).toHaveCount(2);
+    await expect(playoffs.locator('section').first().locator('.bf-trade-metrics > div')).toHaveCount(4);
     await expect(playoffs.locator('section').first()).toContainText('20.0% → 25.0%');
     await expect(playoffs.locator('section').first()).toContainText('+2.0 п.п.');
     await expect(playoffs.locator('section').last()).toContainText('10.0% → 9.0%');
