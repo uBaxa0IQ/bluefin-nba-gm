@@ -1,7 +1,11 @@
 """Чистые функции для определения состояния и посева плей-офф ESPN."""
 
 import math
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional
+
+from .injuries import NBA_TIMEZONE
+from .projection import get_matchup_scoring_periods
 
 
 def get_playoff_periods(settings) -> List[int]:
@@ -13,6 +17,48 @@ def get_playoff_periods(settings) -> List[int]:
         for period in matchup_periods
         if int(period) > regular_season_periods
     )
+
+
+def playoff_scoring_calendar(league):
+    """ESPN's week numbering compresses the week of the NBA All-Star break."""
+    periods = get_playoff_periods(league.settings)
+    nominal = {p: get_matchup_scoring_periods(league, p) for p in periods}
+    if not periods or any(not days for days in nominal.values()):
+        raise ValueError('ESPN не опубликовал календарь плей-офф.')
+    dates = {}
+    for schedule in league.pro_schedule.values():
+        for day, games in schedule.items():
+            for game in games:
+                if game.get('date') and game.get('validForLocking', True):
+                    dates[int(day)] = datetime.fromtimestamp(game['date'] / 1000, NBA_TIMEZONE).date()
+    first = int(league.firstScoringPeriod)
+    final = int(league.finalScoringPeriod)
+    if first not in dates:
+        raise ValueError('ESPN не опубликовал начало календаря NBA.')
+    opening = dates[first]
+    padding = final - nominal[periods[-1]][-1]
+    if padding == 7:
+        # Find the Saturday of the February break in the actual NBA game schedule.
+        # A short break without a missing fantasy week already fits the nominal calendar.
+        active_days = sorted(dates)
+        weekends = [day for left, right in zip(active_days, active_days[1:]) if right-left >= 6
+                    for day in range(left+1, right)
+                    if (d := opening + timedelta(days=day-first)).month == 2 and d.weekday() == 5]
+        if len(weekends) != 1:
+            raise ValueError('Не удалось сверить паузу на Матч звёзд в календаре ESPN.')
+        weekend = weekends[0]
+        nominal = {period: list(range(days[0] + (7 if weekend < days[0] else 0),
+                                      days[-1] + (7 if weekend <= days[-1] else 0) + 1))
+                   for period, days in nominal.items()}
+    if nominal[periods[-1]][-1] != final:
+        raise ValueError('Границы раундов расходятся с календарём ESPN.')
+    # ESPN publishes exact daily IDs as matchups play out, including days without games.
+    for period, days in nominal.items():
+        official = (getattr(league, 'matchup_ids', {}) or {}).get(period, ())
+        if official and not set(map(int, official)).issubset(days):
+            raise ValueError('Границы раунда расходятся с опубликованным матчапом ESPN.')
+    return {p: (days, (opening + timedelta(days=days[0]-first)).isoformat(),
+                (opening + timedelta(days=days[-1]-first)).isoformat()) for p, days in nominal.items()}
 
 
 def get_playoff_context(league) -> Dict[str, Any]:

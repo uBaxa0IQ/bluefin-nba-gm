@@ -22,7 +22,8 @@ def run_probability_job(metadata, params, progress):
     progress('calendar', 0, 0)
     prepared = prepare_season(metadata, params['period'], simulation_mode=params['simulation_mode'],
                               top_n_players=params['top_n_players'], custom_rosters=params['custom_rosters'],
-                              punt_categories=params['punt_categories'], punt_team_id=params.get('punt_team_id'))
+                              punt_categories=params['punt_categories'], punt_team_id=params.get('punt_team_id'),
+                              include_postseason=True)
     progress('histories', 0, len(prepared['players']))
     distributions, coverage = build_distributions(
         prepared['players'], metadata.year, ROOT / '.cache' / 'monte_carlo' / 'game_logs',
@@ -35,7 +36,10 @@ def run_probability_job(metadata, params, progress):
                               historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
                               trials=params['trials'], seed=params['seed'],
                               matchup_tie_category=prepared.get('matchup_tie_category'),
-                              injury_aware=params['simulation_mode'] == INJURY_MODE)
+                              injury_aware=params['simulation_mode'] == INJURY_MODE,
+                              postseason=prepared.get('postseason'))
+    if 'postseason_error' in prepared:
+        result['postseason_error'] = prepared['postseason_error']
     result['metadata'] = prepared['metadata']
     result['history_coverage'] = coverage
     return result
@@ -175,4 +179,4 @@ class ProbabilityJobs:
                     del self.jobs[next(iter(self.jobs))]
 
 
-probability_jobs = ProbabilityJobs()
+probability_jobs = ProbabilityJobs(cache_revision='postseason-v1')

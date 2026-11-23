@@ -53,7 +53,7 @@ async function start(){
   s.tradeValues=['z','ranks','probability'].includes(saved.tradeValues)?saved.tradeValues:'raw';s.tradeSummaryOpen=saved.tradeSummaryOpen===true;
   s.probTeam=teams.some(t=>t.team_id===+saved.probTeam)?+saved.probTeam:null;
   s.probTeamView=saved.probTeamView==='opponents'?'opponents':'schedule';
-  s.probView=saved.probView==='opponents'?'opponents':'ranks';
+  s.probView=['opponents','playoffs'].includes(saved.probView)?saved.probView:'ranks';
   s.probMatrixWeek=+saved.probMatrixWeek||null;s.probRosterTeam=+saved.probRosterTeam||null;
   s.probWeek=+saved.probWeek||null;s.probOpponent=+saved.probOpponent||null;
   if(['matchup','z_scores','team_stats_avg','calendar','probabilistic'].includes(saved.simMode))s.simMode=saved.simMode;

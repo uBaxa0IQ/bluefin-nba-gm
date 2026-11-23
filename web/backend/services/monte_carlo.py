@@ -8,10 +8,12 @@ from core.snapshot import build_league_snapshot
 from core.simulation import compare_category_stats
 from .projections import projection_injury_context, projection_snapshot_options, select_projection_roster
 from .live_matchups import current_matchup, current_totals, future_lineups
+from .postseason import prepare_postseason
 
 
 def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=13,
-                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None, live_matchup=None):
+                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None, live_matchup=None,
+                   include_postseason=False):
     league = metadata.league
     snapshot = snapshot or build_league_snapshot(metadata, period, **projection_snapshot_options(simulation_mode))
     injury_context = projection_injury_context(metadata, snapshot, simulation_mode,
@@ -104,17 +106,14 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
         if injury_context:
             timelines[str(team_id)] = timeline
     plans, scheduled_players = [], {}
-    if current <= final:
+    if current <= final or (include_postseason and league.scoringPeriodId <= league.finalScoringPeriod):
         live_matchup = live_matchup or current_matchup(metadata, current, snapshot.active_slots)
     live_players = {p.player_id: p.as_projection_player() for p in snapshot.players} if live_matchup and live_matchup.confirmed else {}
     excluded_events = {str(g['id']) for schedule in started_games(league, snapshot.created_at).values()
                        for g in schedule if not g.get('statsOfficial')}
-    for week in range(current, final + 1):
-        days = get_remaining_scoring_periods(league, week) if week == current else get_matchup_scoring_periods(league, week)
-        if not days:
-            # A fully played current week can have no remaining days; future weeks cannot.
-            if week > current:
-                raise ValueError(f'Missing NBA scoring days for week {week}')
+    def build_week(week, days, official_pairs):
+        if not days and week > current:
+            raise ValueError(f'Missing NBA scoring days for week {week}')
         actual, games, live_games = {}, {}, {}
         for team in teams:
             team_id = team['team_id']
@@ -142,8 +141,21 @@ def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=1
                     if missing:
                         raise ValueError(f'Current-week credited shot components missing for team {team_id}: {sorted(missing)}')
                 actual[team_id] = totals
-        plans.append(WeekPlan(week, games, tuple(pairs[week]), actual, live_games))
+        return WeekPlan(week, games, official_pairs, actual, live_games)
+
+    for week in range(current, final + 1):
+        days = get_remaining_scoring_periods(league, week) if week == current else get_matchup_scoring_periods(league, week)
+        plans.append(build_week(week, days, tuple(pairs[week])))
+    extension = {}
+    if include_postseason:
+        regular_players = scheduled_players.copy()
+        try:
+            extension['postseason'] = prepare_postseason(league, raw, teams, current, build_week)
+        except ValueError as error:
+            scheduled_players = regular_players
+            extension['postseason_error'] = str(error)
     return {'teams': teams, 'weeks': plans, 'players': list(scheduled_players.values()),
+            **extension,
             'excluded_events': sorted(excluded_events),
             'historical_h2h': historical, 'categories': categories, 'reverse_categories': sorted(reverse),
             'matchup_tie_category': tie_category,
@@ -166,8 +178,10 @@ def save_inputs(path, prepared, distributions, coverage):
     from dataclasses import asdict
     import json
     from pathlib import Path
-    document = {k: v for k, v in prepared.items() if k not in ('weeks', 'players')}
+    document = {k: v for k, v in prepared.items() if k not in ('weeks', 'players', 'postseason')}
     document['weeks'] = [asdict(w) for w in prepared['weeks']]
+    if prepared.get('postseason') is not None:
+        document['postseason'] = asdict(prepared['postseason'])
     document['distributions'] = {str(pid): {'samples': d.samples.tolist(), 'weights': d.weights.tolist(), 'source': d.source}
                                  for pid, d in distributions.items()}
     document['coverage'] = coverage
@@ -180,12 +194,21 @@ def load_inputs(path):
     import json
     from pathlib import Path
     from core.monte_carlo import PlayerDistribution
+    from core.playoff_simulation import PlayoffRound, Postseason
     data = json.loads(Path(path).read_text(encoding='utf-8'))
-    data['weeks'] = [WeekPlan(w['week'], {int(t): {int(p): n for p, n in games.items()} for t, games in w['games'].items()},
-                              tuple(tuple(pair) for pair in w['official_pairs']),
-                              {int(t): stats for t, stats in w['actual'].items()},
-                              {int(t): {int(pid): LiveGame(**game) for pid, game in games.items()}
-                               for t, games in w.get('live_games', {}).items()}) for w in data['weeks']]
+
+    def decode_week(w):
+        return WeekPlan(w['week'], {int(t): {int(p): n for p, n in games.items()} for t, games in w['games'].items()},
+                        tuple(tuple(pair) for pair in w['official_pairs']),
+                        {int(t): stats for t, stats in w['actual'].items()},
+                        {int(t): {int(pid): LiveGame(**game) for pid, game in games.items()}
+                         for t, games in w.get('live_games', {}).items()})
+
+    data['weeks'] = [decode_week(w) for w in data['weeks']]
+    if (post := data.get('postseason')) is not None:
+        data['postseason'] = Postseason(tuple(
+            PlayoffRound(decode_week(r['plan']), r['start'], r['end'], tuple(map(tuple, r['official'])))
+            for r in post['rounds']), tuple(post['seeds']), post['tie_category'])
     distributions = {int(pid): PlayerDistribution(d['samples'], d['weights'], d['source'])
                      for pid, d in data.pop('distributions').items()}
     return data, distributions

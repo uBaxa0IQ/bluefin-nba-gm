@@ -133,9 +133,11 @@ function probabilityAuto(){
  if(refresh.pending)return;
  const params=probabilityParams(),key=probabilitySettingsKey(params);
  const stamp=refresh.data?.data_version??refresh.data?.last_refresh_time??'';
- const stale=!probability.result||!probability.params||probabilitySettingsKey(probability.params)!==key||
+ const needsPlayoffs=s.probView==='playoffs'&&probability.result&&
+  !probability.result.postseason&&!probability.result.postseason_error;
+ const stale=needsPlayoffs||!probability.result||!probability.params||probabilitySettingsKey(probability.params)!==key||
   (refresh.data?.data_version?probability.resultDataVersion!==stamp:(stamp&&Date.parse(stamp)>Date.parse(probability.resultVersion||probability.result.metadata.as_of)));
- const attempt=key+'|'+stamp;
+ const attempt=key+'|'+stamp+(needsPlayoffs?'|playoffs':'');
  if(!stale||probability.lastAttempt===attempt)return;
  if(probability.autoTimer&&probability.autoKey===attempt)return;
  clearTimeout(probability.autoTimer);
@@ -199,8 +201,57 @@ function probabilityOpponentResults(d){
  return `<div class="pe-table-wrap"><table class="bf-prob-opponents" style="--prob-width:${190+weeks.length*96}px" aria-label="${tr('Вероятность победы команды по неделям в матчах по расписанию','Team win probability by week in scheduled matchups')}"><colgroup><col style="width:190px">${weeks.map(()=>'<col style="width:96px">').join('')}</colgroup><thead><tr><th>${tr('Команда','Team')}</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function probabilityResults(d){
- const controls=`<div class="pe-controls bf-prob-view-controls">${segment([['ranks',tr('Места','Ranks')],['opponents',tr('Соперники','Opponents')]],'probView')}<div class="pe-row"><button class="pe-link" data-action="prob-rosters">${tr('Составы расчёта','Calculation rosters')}</button></div></div>`;
- return controls+(s.probView==='opponents'?probabilityOpponentResults(d):probabilityRankResults(d));
+ const controls=`<div class="pe-controls bf-prob-view-controls">${segment([['ranks',tr('Места','Ranks')],['opponents',tr('Соперники','Opponents')],['playoffs',tr('Плей-офф','Playoffs')]],'probView')}<div class="pe-row"><button class="pe-link" data-action="prob-rosters">${tr('Составы расчёта','Calculation rosters')}</button></div></div>`;
+ const views={ranks:probabilityRankResults,opponents:probabilityOpponentResults,playoffs:probabilityPlayoffResults};
+ return controls+views[s.probView](d);
+}
+
+const playoffPercent=p=>p>0&&p<.001?'&lt;0.1%':probabilityPercent(p);
+
+function probabilityPlayoffResults(d){
+ if(d.postseason_error)return `<div class="pe-error" role="alert">${E(d.postseason_error)} ${button(tr('Повторить','Retry'),'prob-run')}</div>`;
+ const playoffs=d.postseason;
+ if(!playoffs)return blank(tr('Считаем плей-офф…','Calculating playoffs…'));
+ const names=Object.fromEntries(d.standings.map(t=>[t.team_id,t.team_name]));
+ const rows=[...playoffs.teams].sort((a,b)=>b.p_title-a.p_title||b.p_playoffs-a.p_playoffs);
+ const headers=[tr('Команда','Team'),tr('Плей-офф','Playoffs'),tr('Полуфинал','Semifinal'),tr('Финал','Final'),tr('Титул','Champion')];
+ const highest=Math.max(...rows.map(t=>t.p_title));
+ const table=`<div class="pe-table-wrap"><table class="bf-prob-matrix bf-postseason-matrix" style="--prob-width:560px">
+ <colgroup><col style="width:34%"><col><col><col><col></colgroup>
+ <thead><tr>${headers.map(h=>`<th scope="col">${E(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(t=>{
+  const selected=t.team_id===+s.probTeam;
+  return `<tr class="${selected?'bf-prob-selected':''}"><td><button class="bf-prob-team" data-action="prob-team" data-team="${t.team_id}" aria-expanded="${selected}">${E(names[t.team_id])}</button></td>
+  ${[t.p_playoffs,t.p_semifinal,t.p_final].map(p=>`<td>${playoffPercent(p)}</td>`).join('')}
+  <td style="${t.p_title?tone(t.p_title,highest):''}"><strong>${playoffPercent(t.p_title)}</strong></td></tr>`;
+ }).join('')}</tbody></table></div>`;
+ const team=rows.find(t=>t.team_id===+s.probTeam);
+ return table+(team?playoffTeamDetails(playoffs,team,names):'');
+}
+
+function playoffTeamDetails(playoffs,team,names){
+ const roundNames=[tr('Четвертьфинал','Quarterfinal'),tr('Полуфинал','Semifinal'),tr('Финал','Final')];
+ const dateFormat=new Intl.DateTimeFormat(uiLocale(),{day:'numeric',month:'short',timeZone:'UTC'});
+ const sections=playoffs.rounds.map((round,i)=>{
+  const from=new Date(round.start),to=new Date(round.end);
+  const dates=typeof dateFormat.formatRange==='function'?dateFormat.formatRange(from,to):
+   `${dateFormat.format(from)} – ${dateFormat.format(to)}`;
+  const matches=round.matchups.filter(m=>m.team_id===team.team_id).sort((a,b)=>b.p_meet-a.p_meet);
+  const list=items=>`<table class="bf-postseason-pairs"><thead><tr>
+    <th>${tr('Соперник','Opponent')}</th><th>${tr('Встреча','Meet')}</th><th title="${tr('Шанс победы при встрече','Win chance if they meet')}">${tr('Победа','Win')}</th>
+   </tr></thead><tbody>${items.map(m=>`<tr><td>${E(names[m.opponent_id])}</td><td>${playoffPercent(m.p_meet)}</td><td style="${tone((m.p_win-.5)*6)}">${playoffPercent(m.p_win)}</td></tr>`).join('')}</tbody></table>`;
+  const title=matches.filter(m=>m.bracket==='championship');
+  const lower=[['placement',tr('За места 3–8','Places 3–8')],['consolation',tr('Утешительная сетка','Consolation')]];
+  const placement=lower.map(([kind,label])=>{
+   const items=matches.filter(m=>m.bracket===kind);
+   return items.length?`<details class="bf-postseason-placement" ${title.length?'':'open'}><summary>${label}</summary>${list(items)}</details>`:'';
+  }).join('');
+  return `<section class="bf-postseason-round"><h3>${roundNames[i]}</h3><div class="pe-muted">${E(dates)}</div>
+   ${title.length?list(title):''}
+   ${placement}</section>`;
+ });
+ return `<section class="bf-prob-team-panel"><div class="pe-section-head"><h2>${E(names[team.team_id])}</h2>
+  <button class="pe-link" data-action="prob-close-team">${tr('Скрыть','Hide')}</button></div>
+  <div class="bf-postseason-rounds">${sections.join('')}</div></section>`;
 }
 function probabilityOpenPair(team,opponent,week){
  const d=probabilityCurrentResult();if(!d||team===opponent)return;

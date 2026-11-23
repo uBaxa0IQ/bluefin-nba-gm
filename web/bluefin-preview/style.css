@@ -47,6 +47,29 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-prob-team:hover,#paper-exploration .bf-prob-selected .bf-prob-team{color:var(--pe-blue)}
 #paper-exploration .bf-prob-team-panel{border-top:1px solid var(--pe-line);margin-top:32px;padding-top:26px}
 #paper-exploration .bf-prob-team-panel>.pe-section-head h2{font-size:18px}
+#paper-exploration .bf-postseason-matrix td,#paper-exploration .bf-postseason-pairs td{font-variant-numeric:tabular-nums}
+#paper-exploration .bf-postseason-rounds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+#paper-exploration .bf-postseason-round{min-width:0;border-top:1px solid var(--pe-line);padding-top:14px}
+#paper-exploration .bf-postseason-round h3{margin:0 0 3px;font-size:14px;font-weight:600}
+#paper-exploration .bf-postseason-pairs{min-width:0!important;margin-top:10px}
+#paper-exploration .bf-postseason-pairs th:first-child{width:55%}
+#paper-exploration .bf-postseason-pairs td{height:36px}
+#paper-exploration .bf-postseason-pairs td:first-child{overflow-wrap:anywhere}
+#paper-exploration .bf-postseason-placement{margin-top:12px;color:var(--pe-muted)}
+#paper-exploration .bf-postseason-placement summary{cursor:pointer}
+@media(max-width:880px){#paper-exploration .bf-postseason-rounds{grid-template-columns:1fr}}
+@media(max-width:700px){
+ #paper-exploration .pe-app:has(.bf-postseason-matrix) .pe-header{grid-template-columns:auto minmax(0,1fr)}
+ #paper-exploration .pe-app:has(.bf-postseason-matrix) .pe-header-end{min-width:0;justify-content:flex-end}
+ #paper-exploration .pe-app:has(.bf-postseason-matrix) .pe-header-end button{min-width:0;white-space:normal;text-align:right}
+}
+@media(max-width:600px){
+ #paper-exploration .bf-postseason-matrix{width:100%;min-width:0!important}
+ #paper-exploration .bf-postseason-matrix th{white-space:normal;font-size:10px}
+ #paper-exploration .bf-postseason-matrix :is(th,td){padding-left:4px;padding-right:4px}
+ #paper-exploration .bf-postseason-matrix :is(th,td):first-child{padding-right:8px}
+ #paper-exploration .bf-postseason-matrix .bf-prob-team{overflow-wrap:anywhere}
+}
 #paper-exploration .bf-prob-schedule,#paper-exploration .bf-prob-categories{min-width:0!important;width:100%}
 #paper-exploration .bf-prob-schedule th:nth-child(2),#paper-exploration .bf-prob-schedule td:nth-child(2){text-align:left;width:32%}
 #paper-exploration td.bf-prob-category-detail{padding:18px 0 26px}

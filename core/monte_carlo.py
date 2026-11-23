@@ -124,10 +124,38 @@ def rank_trial(points, games, h2h_points, h2h_games, rng):
     return ordered
 
 
+def sample_week_totals(plan, ids, distributions, trials, seed, rng, paired_draws):
+    totals = np.zeros((trials, len(ids), len(COMPONENTS)))
+    for team_index, team_id in enumerate(ids):
+        actual = plan.actual.get(team_id, {})
+        for component, i in INDEX.items():
+            value = actual.get(component, 0)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError('Invalid actual totals')
+            totals[:, team_index, i] = value
+        for player_id, count in sorted(plan.games.get(team_id, {}).items()):
+            if not isinstance(count, int) or count < 0:
+                raise ValueError('Invalid scheduled game count')
+            if count:
+                distribution = distributions[player_id]
+                if paired_draws:
+                    # Stable player/week streams survive roster and lineup changes.
+                    player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id]))
+                    draws = player_rng.choice(len(distribution.samples), size=(count, trials), p=distribution.weights).T
+                else:
+                    draws = rng.choice(len(distribution.samples), size=(trials, count), p=distribution.weights)
+                totals[:, team_index] += distribution.samples[draws].sum(axis=1)
+        for player_id, game in sorted(plan.live_games.get(team_id, {}).items()):
+            # A separate stream keeps paired full-game draws stable.
+            player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id, 1]))
+            totals[:, team_index] += sample_remainder(distributions[player_id], game, trials, player_rng)
+    return totals
+
+
 def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categories=(),
                      trials=10_000, seed=20261116, playoff_teams=8,
                      historical_h2h=(), all_opponents=True, matchup_tie_category=None,
-                     paired_draws=False, injury_aware=False):
+                     paired_draws=False, injury_aware=False, postseason=None):
     """Probabilities are fractions in [0,1]; weeks are simulated jointly.
 
     teams: [{team_id, team_name, wins, losses, ties}]. historical_h2h:
@@ -173,31 +201,7 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
         used = [x for pair in plan.official_pairs for x in pair]
         if len(used) != len(set(used)) or any(x not in positions for x in used):
             raise ValueError(f'Invalid official pairs in week {plan.week}')
-        totals = np.zeros((trials, n, len(COMPONENTS)))
-        for team_id in ids:
-            team_index = positions[team_id]
-            actual = plan.actual.get(team_id, {})
-            for component, i in INDEX.items():
-                value = actual.get(component, 0)
-                if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                    raise ValueError('Invalid actual totals')
-                totals[:, team_index, i] = value
-            for player_id, count in sorted(plan.games.get(team_id, {}).items()):
-                if not isinstance(count, int) or count < 0:
-                    raise ValueError('Invalid scheduled game count')
-                if count:
-                    distribution = distributions[player_id]
-                    if paired_draws:
-                        # Stable player/week streams survive roster and lineup changes.
-                        player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id]))
-                        draws = player_rng.choice(len(distribution.samples), size=(count, trials), p=distribution.weights).T
-                    else:
-                        draws = rng.choice(len(distribution.samples), size=(trials, count), p=distribution.weights)
-                    totals[:, team_index] += distribution.samples[draws].sum(axis=1)
-            for player_id, game in sorted(plan.live_games.get(team_id, {}).items()):
-                # A separate stream keeps paired full-game draws stable.
-                player_rng = np.random.default_rng(np.random.SeedSequence([seed, plan.week, player_id, 1]))
-                totals[:, team_index] += sample_remainder(distributions[player_id], game, trials, player_rng)
+        totals = sample_week_totals(plan, ids, distributions, trials, seed, rng, paired_draws)
         stats = category_arrays(totals, categories) * direction
         tie_direction = -1 if matchup_tie_category in reverse_categories else 1
         tie_stats = (category_arrays(totals, [matchup_tie_category])[..., 0] * tie_direction
@@ -235,9 +239,13 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                                'selected_games': {str(t): sum(plan.games.get(t, {}).values()) for t in ids}})
     games = records.sum(axis=2)
     points = 2 * records[:, :, 0] + records[:, :, 2]
+    orders = np.empty((trials, n), dtype=int) if postseason else None
+    fixed_order = [positions[tid] for tid in postseason.seeds] if postseason and postseason.seeds else None
     for trial in range(trials):
-        order = rank_trial(points[trial], games[trial], h2h[trial], h2h_games, rank_rng)
+        order = fixed_order or rank_trial(points[trial], games[trial], h2h[trial], h2h_games, rank_rng)
         rank_counts[order, np.arange(n)] += 1
+        if orders is not None:
+            orders[trial] = order
     standings = []
     for i, team in enumerate(teams):
         probabilities = rank_counts[i] / trials
@@ -247,10 +255,16 @@ def simulate_seasons(teams, weeks, distributions, *, categories, reverse_categor
                           'expected_record': {key: float(records[:, i, k].mean())
                                               for k, key in enumerate(('wins', 'losses', 'ties'))}})
     standings.sort(key=lambda t: t['expected_rank'])
+    playoff_result = {}
+    if postseason is not None:
+        from .playoff_simulation import simulate_playoffs
+        playoff_result['postseason'] = simulate_playoffs(ids, orders, postseason, distributions, categories,
+                                                        reverse_categories, seed)
     return {'engine_version': 'calendar-bootstrap-v2', 'trials': trials, 'seed': seed,
             'categories': list(categories), 'playoff_teams': playoff_teams,
             'matchup_tie_category': matchup_tie_category,
             'standings': standings, 'weeks': weekly_results,
+            **playoff_result,
             'max_monte_carlo_standard_error': .5 / math.sqrt(trials),
             'tie_breaker': 'Win percentage; tied-group H2H if equal games; coin flip (single division).',
             'assumptions': [

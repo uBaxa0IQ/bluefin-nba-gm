@@ -2,7 +2,9 @@
 
 The engine can run from the CLI without starting the frontend or backend. It supports
 ESPN H2H Most Categories leagues with one division and H2H_RECORD playoff seeding.
-It simulates final **regular-season positions**, not playoff-bracket championships.
+The standalone regular-season calculation produces final **regular-season positions**.
+The app's probabilistic view also continues each trial through a supported eight-team
+ESPN postseason, including placement games and the consolation ladder.
 
 ## Web interface
 

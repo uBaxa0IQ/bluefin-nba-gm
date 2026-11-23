@@ -17,7 +17,7 @@ const result = {
     }] }],
 };
 
-async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [] } = {}) {
+async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [], forecastResult = result } = {}) {
     let completed = null;
     let current = null;
     let starts = 0;
@@ -52,7 +52,7 @@ async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [
         }
         if (path.startsWith('/api/probabilistic/jobs/')) {
             if (failNext && starts === 2) return route.fulfill({ json: { ...current, status: 'failed', message: 'Попробуйте позже' } });
-            completed = { ...current, status: 'complete', result: { ...result, trials: current.params.trials } };
+            completed = { ...current, status: 'complete', result: { ...forecastResult, trials: current.params.trials } };
             return route.fulfill({ json: completed });
         }
         return route.fulfill({ json: {} });
@@ -61,6 +61,36 @@ async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [
     await expect(page.locator('.bf-prob-matrix tbody tr')).toHaveCount(2);
     return calls;
 }
+
+test('playoffs show title odds and round-specific opponents', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('bluefin-live-v1:123:2027', JSON.stringify({
+        puntsEnabled: true, punts: ['3PM', '3PT%', 'FT%', 'PTS'],
+    })));
+    const team = { team_id: 1, p_playoffs: .8, p_semifinal: .6, p_final: .4, p_title: .3 };
+    const postseason = {
+        teams: [team, { ...team, team_id: 2, p_title: .15 }],
+        rounds: [
+            { week: 17, start: '2027-02-08', end: '2027-02-14', matchups: [
+                { team_id: 1, opponent_id: 2, p_meet: .4, p_win: .6, bracket: 'championship' },
+                { team_id: 1, opponent_id: 2, p_meet: .1, p_win: .2, bracket: 'consolation' },
+            ] },
+            { week: 18, start: '2027-02-15', end: '2027-02-28', matchups: [] },
+            { week: 19, start: '2027-03-01', end: '2027-03-14', matchups: [] },
+        ],
+    };
+    await setup(page, { forecastResult: { ...result, postseason } });
+    await page.getByRole('button', { name: 'Плей-офф', exact: true }).click();
+    const matrix = page.locator('.bf-postseason-matrix');
+    await expect(matrix.getByRole('row', { name: /Team A/ })).toContainText('30.0%');
+    await matrix.getByRole('button', { name: 'Team A' }).click();
+    const round = page.locator('.bf-postseason-round').first();
+    await expect(round).toContainText('40.0%');
+    await expect(round).toContainText('60.0%');
+    await round.getByText('Утешительная сетка', { exact: true }).click();
+    await expect(round.getByRole('cell', { name: '20.0%', exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
 
 test('automatically calculates 10000 runs, drills down and restores after reload', async ({ page }) => {
     const calls = await setup(page);
