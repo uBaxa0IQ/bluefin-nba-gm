@@ -728,7 +728,7 @@ class LeagueMetadata:
                 lineup = box.away_lineup
                 break
         
-        if not matchup_box or not lineup:
+        if not matchup_box:
             return None
         
         team = self.get_team_by_id(team_id)
@@ -750,7 +750,7 @@ class LeagueMetadata:
         total_ast = 0.0
         total_to = 0.0
         
-        for player in lineup:
+        for player in lineup or ():
             # Пропускаем игроков на IR
             if hasattr(player, 'slot_position') and player.slot_position == 'IR':
                 continue

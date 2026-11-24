@@ -67,4 +67,21 @@ def test_timeline_uses_final_whistles_and_only_credited_statistics(monkeypatch):
 
 def test_timeline_waits_for_current_fantasy_score_to_catch_up(monkeypatch):
     meta = setup(monkeypatch, partial=True)
-    assert timeline.get_matchup_timeline(meta, 1, 1, now=START + timedelta(hours=5)) == {'points': []}
+    points = timeline.get_matchup_timeline(meta, 1, 1, now=START + timedelta(hours=5))['points']
+    assert [point['game_id'] for point in points] == [None]
+    assert points[0]['p_win'] == 1
+
+
+def test_timeline_shows_opening_odds_before_tipoff_and_until_first_final(monkeypatch):
+    meta = setup(monkeypatch, partial=True)
+    meta.league.scoringPeriodId = 0
+    before = timeline.get_matchup_timeline(meta, 1, 1, now=START - timedelta(minutes=30))['points']
+
+    meta.league.scoringPeriodId = 1
+    monkeypatch.setattr(timeline, '_finished_game', lambda *args: None)
+    after = timeline.get_matchup_timeline(meta, 1, 1, now=START + timedelta(minutes=30))['points']
+
+    assert before == after
+    assert len(before) == 1
+    assert before[0]['game_id'] is None
+    assert before[0]['p_win'] == 1
