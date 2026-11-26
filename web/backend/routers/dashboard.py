@@ -3,10 +3,12 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from dependencies import get_league_meta
+from core.simulation import compare_category_stats
 from core.z_score import calculate_z_scores
 from core.config import CATEGORIES, DEFAULT_PERIOD, REVERSE_CATEGORIES
 from utils.calculations import calculate_team_raw_stats, select_top_n_players
 from services.game_usage import get_week_game_usage
+from services.live_matchups import read_live_matchup_totals
 from services.matchup_timeline import TimelineUnavailable, get_matchup_timeline
 from core.roster_rules import static_roster_mode
 from typing import Optional, List
@@ -345,72 +347,44 @@ def get_matchup_details(
     
     # Получаем текущий матчап
     matchup_box = league_meta.get_matchup_box_score(current_week, team_id)
-    if not matchup_box or not any(
-        value for value in matchup_box.get('totals', {}).values()
-        if isinstance(value, (int, float))
-    ):
-        return {"status": "not_started", "week": current_week}
+    if not matchup_box:
+        raise HTTPException(status_code=404, detail="No matchup found")
     
     opponent_id = matchup_box['opponent_id']
     
-    # Получаем детальную сводку матчапа
-    matchup_summary = league_meta.get_matchup_summary(current_week, team_id, opponent_id)
-    if not matchup_summary:
+    opponent_box = league_meta.get_matchup_box_score(current_week, opponent_id)
+    if not opponent_box or opponent_box['opponent_id'] != team_id:
         return {"error": "Could not get matchup summary"}
-    
-    # Форматируем данные для фронтенда
-    # Определяем, какая команда - team1, а какая - team2
-    if matchup_summary['team1_id'] == team_id:
-        my_team_stats = matchup_summary['team1_stats_filtered']
-        opponent_stats = matchup_summary['team2_stats_filtered']
-        my_team_name = matchup_summary['team1']
-        opponent_name = matchup_summary['team2']
-        my_wins = matchup_summary['team1_wins']
-        opponent_wins = matchup_summary['team2_wins']
-        ties = matchup_summary['ties']
-    else:
-        my_team_stats = matchup_summary['team2_stats_filtered']
-        opponent_stats = matchup_summary['team1_stats_filtered']
-        my_team_name = matchup_summary['team2']
-        opponent_name = matchup_summary['team1']
-        my_wins = matchup_summary['team2_wins']
-        opponent_wins = matchup_summary['team1_wins']
-        ties = matchup_summary['ties']
-    
-    # Формируем данные по категориям
-    categories_data = []
-    for cat in CATEGORIES:
-        my_value = my_team_stats.get(cat, 0.0)
-        opponent_value = opponent_stats.get(cat, 0.0)
-        
-        reverse = cat in league_meta.reverse_categories
-        # Определяем победителя с учётом категорий, где меньше — лучше.
-        adjusted_my = -my_value if reverse else my_value
-        adjusted_opponent = -opponent_value if reverse else opponent_value
-        if adjusted_my > adjusted_opponent:
-            winner = 'my_team'
-        elif adjusted_opponent > adjusted_my:
-            winner = 'opponent'
-        else:
-            winner = 'tie'
-        
-        categories_data.append({
+
+    live = read_live_matchup_totals(league_meta.league, current_week, team_id, opponent_id)
+    my_team_stats = {**matchup_box['totals'], **live.get(team_id, {})}
+    opponent_stats = {**opponent_box['totals'], **live.get(opponent_id, {})}
+    categories = league_meta.get_categories()
+    comparison = compare_category_stats(my_team_stats, opponent_stats, categories, league_meta.reverse_categories)
+    my_wins = comparison['team1_wins']
+    opponent_wins = comparison['team2_wins']
+    ties = len(categories) - my_wins - opponent_wins
+    winners = {'win': 'my_team', 'loss': 'opponent', 'tie': 'tie'}
+    categories_data = [
+        {
             'category': cat,
-            'my_value': my_value,
-            'opponent_value': opponent_value,
-            'winner': winner
-        })
-    
+            'my_value': my_team_stats.get(cat, 0.0),
+            'opponent_value': opponent_stats.get(cat, 0.0),
+            'winner': winners[outcome],
+        }
+        for cat, outcome in comparison['categories'].items()
+    ]
+
     return {
         'week': current_week,
         'my_team': {
             'id': team_id,
-            'name': my_team_name,
+            'name': matchup_box['team_name'],
             'wins': my_wins
         },
         'opponent': {
             'id': opponent_id,
-            'name': opponent_name,
+            'name': opponent_box['team_name'],
             'wins': opponent_wins
         },
         'score': f"{my_wins}-{opponent_wins}-{ties}",

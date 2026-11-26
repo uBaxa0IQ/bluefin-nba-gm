@@ -212,19 +212,17 @@ def get_matchup_timeline(metadata, team_id, week, *, now=None):
         return {'points': []}
     teams = team_id, opponent
     days = get_matchup_scoring_periods(league, week)
-    archived_days = [day for day in days if day <= current_day]
+    lineup_days = [day for day in days if day <= current_day] or days[:1]
     slots = league_slots(metadata)
     games, by_team_day = _nba_schedule(league, days)
-    if not games or not archived_days:
+    if not games or not lineup_days:
         return {'points': []}
     first_game = min(games.values(), key=lambda game: game.tipoff)
     start = first_game.tipoff - timedelta(seconds=1)
-    if start > now:
-        return {'points': []}
     bucket = int(now.timestamp() // 60)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        requests = {day: pool.submit(_daily_box, league, week, day, bucket if day == current_day else None)
-                    for day in archived_days}
+        requests = {day: pool.submit(_daily_box, league, week, day, bucket if day >= current_day else None)
+                    for day in lineup_days}
         lineups = {day: _day_rosters(job.result(), week, day, teams) for day, job in requests.items()}
 
     observed, relevant, players = defaultdict(lambda: defaultdict(list)), defaultdict(dict), {}
@@ -244,22 +242,20 @@ def get_matchup_timeline(metadata, team_id, week, *, now=None):
 
     upcoming = [games[gid] for gid in relevant if games[gid].tipoff <= now]
     with ThreadPoolExecutor(max_workers=8) as pool:
-        tasks = {g: pool.submit(_finished_game, g.id, bucket if g.day == current_day else None) for g in upcoming}
+        tasks = {g: pool.submit(_finished_game, g.id, bucket if g.day >= current_day else None) for g in upcoming}
         events = [(g, task.result()) for g, task in tasks.items()]
     if week < current_week and any(event is None for g, event in events if g.id in observed):
         raise TimelineUnavailable('ESPN historical game completion unavailable')
     events = sorted(((g, e) for g, e in events if e and e.at <= now), key=lambda item: (item[1].at, item[0].id))
     # ESPN may mark an NBA game final before the fantasy box has all the plays.
     for index, (game, event) in enumerate(events):
-        if game.day == current_day and any(
+        if game.day >= current_day and any(
             credited.get(c, 0) != event.stats.get(pid, {}).get(c, 0)
             for pid, credited in relevant[game.id].items() for c in COMPONENTS
         ):
             events = events[:index]
             outcome = None
             break
-    if not events:
-        return {'points': []}
     categories = metadata.get_categories()
     if metadata.scoring_type != 'H2H_MOST_CATEGORIES' or not categories or set(categories) - set(COMPONENTS) - RATIOS.keys():
         raise TimelineUnavailable('This league format is unsupported')
@@ -267,7 +263,9 @@ def get_matchup_timeline(metadata, team_id, week, *, now=None):
     tiebreak = STATS_MAP.get(str(scoring.get('matchupTieRuleBy'))) if scoring.get('matchupTieRule') == 'STAT_POINTS' else None
     if tiebreak and tiebreak not in (*COMPONENTS, *RATIOS):
         raise TimelineUnavailable('This league tiebreak is unsupported')
-    distributions, coverage = build_distributions(players.values(), metadata.year, HISTORY, as_of=start, historical=True)
+    distributions, coverage = build_distributions(
+        players.values(), metadata.year, HISTORY, as_of=min(start, now), historical=True,
+    )
     if not distributions:
         raise TimelineUnavailable('No player history before the matchup')
     start_day = min(lineups)

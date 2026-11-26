@@ -64,6 +64,23 @@ def read_fantasy_day(league, week, day):
     )
 
 
+def read_live_matchup_totals(league, week, team_id, opponent_id):
+    if week != int(league.currentMatchupPeriod):
+        return {}
+    try:
+        data = read_fantasy_day(league, week, int(league.scoringPeriodId))
+        for matchup in data.get('schedule', ()):
+            if matchup.get('matchupPeriodId') != week or matchup.get('winner') in ('HOME', 'AWAY', 'TIE'):
+                continue
+            sides = [matchup.get(key) or {} for key in ('home', 'away')]
+            if {side.get('teamId') for side in sides} == {team_id, opponent_id}:
+                return {side['teamId']: _score(side, 'cumulativeScoreLive') for side in sides}
+    except (AttributeError, KeyError, TypeError, ValueError, requests.RequestException,
+            ESPNAccessDenied, ESPNInvalidLeague, ESPNUnknownError) as error:
+        logger.warning('ESPN live scoreboard unavailable (%s)', type(error).__name__)
+    return {}
+
+
 def _live_box(data):
     competitions = data.get('header', {}).get('competitions', ())
     status = competitions[0].get('status', {}) if competitions else {}

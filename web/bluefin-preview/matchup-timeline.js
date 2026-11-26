@@ -1,6 +1,7 @@
 'use strict';
 
 const matchupTimelinePath=(team,week)=>`/api/dashboard/${team}/matchup-timeline?week=${week}`;
+const matchupDetailsPath=(team,week)=>`/api/dashboard/${team}/matchup-details?week=${week}&include_game_usage=false`;
 
 function matchupTimeline(team, week, matchup){
  const title=tr('Шансы по ходу матчапа','Matchup win probability');
@@ -11,8 +12,8 @@ function matchupTimeline(team, week, matchup){
   content=`<p class="bf-odds-state" role="status">${tr('Восстанавливаем хронологию матчапа…','Reconstructing the matchup timeline…')}</p>`;
  }else if(entry.error){
   content=`<div class="bf-odds-state"><span>${tr('График временно недоступен','Timeline temporarily unavailable')}</span><button class="pe-link" data-odds-retry="${E(path)}">${tr('Повторить','Retry')}</button></div>`;
- }else if(!(entry.data?.points?.length>1)){
-  content=`<p class="bf-odds-state">${tr('График появится после первого завершённого матча NBA.','The timeline starts after the first final NBA game.')}</p>`;
+ }else if(!entry.data?.points?.length){
+  content=`<p class="bf-odds-state">${tr('Нет данных для графика','No timeline data')}</p>`;
  }else{
   content=matchupOddsChart(entry.data,matchup);
  }
@@ -21,8 +22,9 @@ function matchupTimeline(team, week, matchup){
 
 function matchupOddsChart(data, matchup){
  const points=data.points;
+ const hasTrend=points.length>1;
  const W=800,H=210,mid=H/2;
- const x=i=>i*W/(points.length-1);
+ const x=i=>hasTrend?i*W/(points.length-1):0;
  const equity=p=>p.p_win+p.p_tie/2;
  const y=p=>5+(1-equity(p))*(H-10);
  const coordinates=points.map((p,i)=>`${x(i)},${y(p)}`).join(' ');
@@ -48,7 +50,7 @@ function matchupOddsChart(data, matchup){
   <div class="bf-odds-plot">
    <div class="bf-odds-scale" aria-hidden="true"><span>100%</span><strong>50%</strong><span>0%</span></div>
    <div class="bf-odds-canvas" data-odds-plot data-index="${points.length-1}" tabindex="0"
-    aria-label="${tr('Шансы по матчам NBA. Стрелки влево и вправо выбирают игру.','Odds after each NBA game. Use the arrow keys to select a game.')}"
+    aria-label="${hasTrend?tr('Шансы по матчам NBA. Стрелки влево и вправо выбирают игру.','Odds after each NBA game. Use the arrow keys to select a game.'):tr('Стартовые шансы','Opening odds')}"
     aria-description="${E(latest.label+'. '+latest.detail)}">
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
      <defs>
@@ -58,10 +60,10 @@ function matchupOddsChart(data, matchup){
       <linearGradient id="bf-odds-bad" x2="0" y2="100%" gradientUnits="objectBoundingBox"><stop class="bf-odds-gradient-behind" stop-opacity="0"/><stop offset="100%" class="bf-odds-gradient-behind" stop-opacity=".32"/></linearGradient>
      </defs>
      ${[5,H/4,mid,H*3/4,H-5].map(v=>`<line class="${v===mid?'bf-odds-parity':'bf-odds-grid'}" x1="0" y1="${v}" x2="${W}" y2="${v}"/>`).join('')}
-     <polygon class="bf-odds-area-ahead" clip-path="url(#bf-odds-ahead)" points="0,${mid} ${coordinates} ${W},${mid}"/>
+     ${hasTrend?`<polygon class="bf-odds-area-ahead" clip-path="url(#bf-odds-ahead)" points="0,${mid} ${coordinates} ${W},${mid}"/>
      <polygon class="bf-odds-area-behind" clip-path="url(#bf-odds-behind)" points="0,${mid} ${coordinates} ${W},${mid}"/>
      <polyline class="bf-odds-line bf-odds-ahead" clip-path="url(#bf-odds-ahead)" points="${coordinates}"/>
-     <polyline class="bf-odds-line bf-odds-behind" clip-path="url(#bf-odds-behind)" points="${coordinates}"/>
+     <polyline class="bf-odds-line bf-odds-behind" clip-path="url(#bf-odds-behind)" points="${coordinates}"/>`:''}
     </svg>
     ${rows.map(row=>row.marker).join('')}
    </div>
@@ -108,15 +110,28 @@ app.addEventListener('click',event=>{
  render();
 });
 
-setInterval(()=>{
- if(s.overlay!=='match'||s.detail.week!==weeks.current_week||document.hidden)return;
- const path=matchupTimelinePath(s.detail.team,s.detail.week);
+async function refreshMatchupResource(path){
  const previous=cache.get(path);
- if(!previous||previous.pending||previous.refreshing)return;
+ if(!previous||previous.pending||previous.refreshing)return false;
  previous.refreshing=true;
- void request(path).then(data=>{
+ try{
+  const data=await request(path);
+  if(cache.get(path)!==previous)return false;
   cache.set(path,{data,created:Date.now(),pending:false});
-  if(s.overlay==='match'&&path===matchupTimelinePath(s.detail.team,s.detail.week)
-     &&JSON.stringify(data)!==JSON.stringify(previous.data))render();
- }).catch(()=>{}).finally(()=>{previous.refreshing=false;});
+  return JSON.stringify(data)!==JSON.stringify(previous.data);
+ }catch{
+  return false;
+ }finally{
+  previous.refreshing=false;
+ }
+}
+
+setInterval(async()=>{
+ if(s.overlay!=='match'||s.detail.week!==weeks.current_week||document.hidden)return;
+ const {team,week}=s.detail;
+ const changed=await Promise.all([
+  refreshMatchupResource(matchupDetailsPath(team,week)),
+  refreshMatchupResource(matchupTimelinePath(team,week)),
+ ]);
+ if(changed.some(Boolean)&&s.overlay==='match'&&s.detail.team===team&&s.detail.week===week)render();
 },60000);
