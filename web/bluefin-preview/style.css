@@ -24,6 +24,17 @@ html{scrollbar-gutter:stable}
 .bf-trade-prob-summary{display:flex;gap:12px 24px;flex-wrap:wrap;font-size:12px;color:var(--pe-muted)}
 .bf-trade-prob-summary strong{font-weight:500;color:var(--pe-ink)}
 .bf-trade-prob-loading{min-height:180px;display:grid;place-items:center;color:var(--pe-muted)}
+#paper-exploration .bf-trade-match-trigger{cursor:pointer}
+#paper-exploration .bf-trade-match-trigger .bf-prob-team{padding:0}
+#paper-exploration .bf-trade-match-trigger:is(:hover,:focus-within) .bf-prob-team{color:var(--pe-blue)}
+#paper-exploration .pe-table-wrap .bf-trade-match-table{min-width:0;width:100%}
+#paper-exploration .bf-trade-match-table :is(th,td){white-space:normal;overflow-wrap:anywhere}
+#paper-exploration .bf-trade-match-table td{height:auto}
+#paper-exploration .bf-trade-match-table td small{display:block;margin-top:3px}
+#paper-exploration .bf-trade-match-table td span{display:inline-block;padding:2px 5px;border-radius:2px}
+#paper-exploration .bf-trade-match-table th:nth-child(2):nth-last-child(3),#paper-exploration .bf-trade-match-table td:nth-child(2):nth-last-child(3){text-align:left}
+#paper-exploration dialog:has(.bf-trade-match-table) h3{margin:20px 0 4px;font-size:13px;font-weight:500}
+#paper-exploration dialog:has(.bf-trade-match-table) h3 small{color:var(--pe-muted);font-weight:400;margin-left:6px}
 @media(max-width:760px){.bf-trade-prob-grid{grid-template-columns:1fr}}
 #paper-exploration .bf-prob-matrix{width:max(100%,var(--prob-width));min-width:var(--prob-width)!important}
 #paper-exploration .bf-prob-opponents{width:max(100%,var(--prob-width));min-width:var(--prob-width)!important}

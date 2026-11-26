@@ -386,10 +386,15 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await setup(page);
     const team = { name: 'Team', before_z: 1, after_z: 2, delta: 1, categories: {}, raw_categories: {} };
     await page.route('**/api/bluefin/trade', route => route.fulfill({ json: { my_team: team, their_team: team } }));
+    const round = { week: 17, start: '2027-02-08', end: '2027-02-14' };
     const before = result.standings.map(t => ({ ...t, p_final: .2, p_title: .1,
+        regular_matchups: [{ week: 5, opponent_id: 3 - t.team_id, p_win: t.team_id === 1 ? .65 : .3 }],
+        playoff_matchups: [{ ...round, opponents: [{ opponent_id: 3 - t.team_id, p_meet: .15, p_win: .5 }] }],
         category_probabilities: { PTS: t.team_id === 1 ? .6 : .4, REB: t.team_id === 1 ? .8 : .2 } }));
     const after = before.map(t => ({ ...t, expected_rank: t.expected_rank + .1, p_playoffs: .5,
         p_final: t.team_id === 1 ? .25 : .17, p_title: t.team_id === 1 ? .12 : .09,
+        regular_matchups: [{ ...t.regular_matchups[0], p_win: t.team_id === 1 ? .72 : .23 }],
+        playoff_matchups: [{ ...round, opponents: t.team_id === 1 ? [] : [{ opponent_id: 1, p_meet: .15, p_win: .45 }] }],
         rank_probabilities: { 1: .5, 2: .5 }, category_probabilities: { PTS: t.team_id === 1 ? .72 : .3, REB: t.team_id === 1 ? .75 : .35 } }));
     let release;
     const gate = new Promise(resolve => { release = resolve; });
@@ -422,6 +427,15 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await expect(playoffs.locator('section').first()).toContainText('20.0% → 25.0%');
     await expect(playoffs.locator('section').first()).toContainText('+2.0 п.п.');
     await expect(playoffs.locator('section').last()).toContainText('10.0% → 9.0%');
+    await playoffs.locator('section').first().getByText('20.0% → 25.0%', { exact: true }).click();
+    const matchups = page.getByRole('dialog', { name: 'Team A' });
+    await expect(matchups.getByRole('row', { name: /Team B/ })).toContainText('65.0% → 72.0%');
+    await expect(matchups.getByRole('row', { name: /Team B/ })).toContainText('+7.0 п.п.');
+    await matchups.getByRole('button', { name: 'Плей-офф', exact: true }).click();
+    const path = matchups.getByRole('row', { name: /Team B/ });
+    await expect(path).toContainText('15.0% → 0.0%');
+    await expect(path).toContainText('50.0% → —');
+    await matchups.getByRole('button', { name: 'Закрыть' }).click();
     await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '72.0%', '+12.0 п.п.', '40.0%', '30.0%', '-10.0 п.п.']);
     await page.locator('[data-set="tradeValues"][data-value="raw"]').click();
     await page.locator('[data-set="tradeValues"][data-value="probability"]').click();

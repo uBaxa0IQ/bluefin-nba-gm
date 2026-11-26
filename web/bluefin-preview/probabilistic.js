@@ -65,10 +65,59 @@ function tradeProbabilityPanel(){
    const delta=finite(a?.[key])&&finite(b?.[key])?(b[key]-a[key])*100:null;
    return `<div><span>${label}</span><strong>${show(a,key)} → ${show(b,key)}</strong>${delta===null?'':`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`}</div>`;
   }).join('');
-  return `<section><h2>${E(tname(team))}</h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div>${metrics}</div></section>`;
+  return `<section class="bf-trade-match-trigger" data-action="trade-matchups" data-team="${team}"><h2><button class="bf-prob-team" aria-haspopup="dialog" aria-label="${E(tname(team))} · ${tr('Матчапы','Matchups')}">${E(tname(team))}</button></h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div>${metrics}</div></section>`;
  }).join('');
  return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-grid">${[+s.tradeMyTeam,+s.tradeTeam].map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></section>
  `;
+}
+
+function tradeMatchupOdds(before,after,pending){
+ const delta=finite(before)&&finite(after)?(after-before)*100:null;
+ return {
+  comparison:`${probabilityPercent(before)} → ${pending?'…':probabilityPercent(after)}`,
+  change:delta===null?'—':`<span style="${Math.abs(delta)>=.05?tone(delta/10):''}">${delta>=.05?'+':''}${fmt(Math.abs(delta)<.05?0:delta,1)} ${tr('п.п.','pp')}</span>`,
+ };
+}
+
+function tradeMatchupDialog(){
+ if(tradeProbability.key!==tradeProbabilityKey())return '';
+ const {job,error,matchTeam,matchView}=tradeProbability;
+ const before=job?.result?.before?.find(t=>t.team_id===matchTeam);
+ const after=job?.result?.after?.find(t=>t.team_id===matchTeam);
+ const pending=!error&&(!job||job.status==='running');
+ const views=[['regular',tr('Регулярка','Regular season')],['playoffs',tr('Плей-офф','Playoffs')]];
+ const controls=`<div class="pe-tabs" role="group" aria-label="${tr('Этап сезона','Season stage')}">${views.map(([view,label])=>`<button data-action="trade-matchup-view" data-view="${view}" aria-pressed="${view===matchView}">${label}</button>`).join('')}</div>`;
+ const message=error||job?.message;
+ if(!before&&!after)return controls+blank(pending?'…':message||tr('Прогноз матчапов недоступен','Matchup forecast unavailable'));
+ const table=(head,rows)=>`<div class="pe-table-wrap"><table class="bf-trade-match-table"><thead><tr>${head.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+ const opponent=tr('Соперник','Opponent');
+ if(matchView==='regular'){
+  const prior=before?.regular_matchups??[],next=after?.regular_matchups??[];
+  const matches=[...new Map([...prior,...next].map(m=>[m.week,m])).values()].sort((a,b)=>a.week-b.week);
+  if(!matches.length)return controls+blank(tr('Нет оставшихся матчапов','No remaining matchups'));
+  return controls+table([tr('Неделя','Week'),opponent,tr('Победа до → после','Win before → after'),'Δ'],matches.map(({week,opponent_id})=>{
+   const a=prior.find(m=>m.week===week&&m.opponent_id===opponent_id),b=next.find(m=>m.week===week&&m.opponent_id===opponent_id);
+   const odds=tradeMatchupOdds(a?.p_win,b?.p_win,pending&&!after);
+   return `<tr><td>${week}</td><td>${E(tname(opponent_id))}</td><td>${odds.comparison}</td><td>${odds.change}</td></tr>`;
+  }).join(''));
+ }
+ const prior=before?.playoff_matchups??[],next=after?.playoff_matchups??[];
+ const rounds=[...new Map([...prior,...next].map(r=>[r.week,r])).values()].sort((a,b)=>a.week-b.week);
+ if(!rounds.length)return controls+blank(tr('Прогноз плей-офф недоступен','Playoff forecast unavailable'));
+ return controls+rounds.map((round,i)=>{
+  const a=prior.find(r=>r.week===round.week),b=next.find(r=>r.week===round.week);
+  const ids=[...new Set([...(a?.opponents??[]),...(b?.opponents??[])].map(m=>m.opponent_id))];
+  const pairs=ids.map(id=>({id,left:a?.opponents.find(m=>m.opponent_id===id),right:b?.opponents.find(m=>m.opponent_id===id)}));
+  const title=`<h3>${playoffRoundName(i,'championship')} <small>${E(playoffDateRange(round))}</small></h3>`;
+  if(!pairs.length)return title+blank(tr('Нет возможных соперников','No possible opponents'));
+  pairs.sort((x,y)=>Math.max(y.left?.p_meet??0,y.right?.p_meet??0)-Math.max(x.left?.p_meet??0,x.right?.p_meet??0));
+  return title+table([opponent,tr('Шанс встречи','Chance to meet'),tr('Победа при встрече','Win if matched')],pairs.map(({id,left,right})=>{
+   const meet=tradeMatchupOdds(a?(left?.p_meet??0):null,b?(right?.p_meet??0):null,pending&&!after);
+   const win=tradeMatchupOdds(left?.p_win,right?.p_win,pending&&!after);
+   const cell=o=>`<td>${o.comparison}<small>${o.change}</small></td>`;
+   return `<tr><td>${E(tname(id))}</td>${cell(meet)}${cell(win)}</tr>`;
+  }).join(''));
+ }).join('');
 }
 
 function probabilityParams(){
@@ -383,6 +432,18 @@ function probabilisticPage(){
 
 app.addEventListener('click',event=>{
  const el=event.target.closest('[data-action]');if(!el||el.disabled)return;
+ if(el.dataset.action==='trade-matchups'){
+  tradeProbability.matchTeam=+el.dataset.team;
+  tradeProbability.matchView='regular';
+  s.overlay='trade-matchups';
+  render();
+  app.querySelector('dialog [data-action="close"]')?.focus({preventScroll:true});
+ }
+ if(el.dataset.action==='trade-matchup-view'){
+  tradeProbability.matchView=el.dataset.view;
+  render();
+  app.querySelector('dialog [data-action="trade-matchup-view"][aria-pressed="true"]')?.focus({preventScroll:true});
+ }
  if(el.dataset.action==='prob-run')void probabilityRun();
  if(el.dataset.action==='prob-restore'){probability.error='';void probabilityRestore();}
  if(el.dataset.action==='prob-team'){

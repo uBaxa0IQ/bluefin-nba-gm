@@ -34,6 +34,34 @@ def category_probabilities(forecast):
         for cat, values in samples[team['team_id']].items()}} for team in forecast['standings']]
 
 
+def trade_matchup_probabilities(forecast, standings):
+    by_id = {team['team_id']: team for team in standings}
+    postseason = forecast.get('postseason')
+    playoff_teams = {team['team_id']: team for team in postseason['teams']} if postseason else {}
+    for team_id, team in by_id.items():
+        playoff_team = playoff_teams.get(team_id, {})
+        team.update(p_final=playoff_team.get('p_final'), p_title=playoff_team.get('p_title'),
+                    regular_matchups=[], playoff_matchups=[] if postseason else None)
+
+    for week in forecast['weeks']:
+        for match in week['matchups']:
+            if match['official']:
+                a, b = match['team1_id'], match['team2_id']
+                by_id[a]['regular_matchups'].append(dict(week=week['week'], opponent_id=b, p_win=match['p_win']))
+                by_id[b]['regular_matchups'].append(dict(week=week['week'], opponent_id=a, p_win=match['p_loss']))
+
+    for round_ in postseason['rounds'] if postseason else ():
+        rounds = {team_id: dict(week=round_['week'], start=round_['start'], end=round_['end'], opponents=[])
+                  for team_id in by_id}
+        for match in round_['matchups']:
+            if match['bracket'] == 'championship':
+                rounds[match['team_id']]['opponents'].append(
+                    {key: match[key] for key in ('opponent_id', 'p_meet', 'p_win')})
+        for team_id, round_data in rounds.items():
+            by_id[team_id]['playoff_matchups'].append(round_data)
+    return standings
+
+
 def trade_snapshots(metadata, params):
     mode = params.get('simulation_mode', 'top_n')
     snapshot = build_league_snapshot(metadata, params['period'], **projection_snapshot_options(mode))
@@ -100,11 +128,7 @@ def run_trade_probability(metadata, params, progress):
                 historical_h2h=prepared['historical_h2h'], playoff_teams=prepared['playoff_teams'],
                 matchup_tie_category=prepared.get('matchup_tie_category'), trials=3000, seed=params.get('seed', 20261116),
                 all_opponents=False, paired_draws=True, postseason=prepared.get('postseason'))
-            standings = category_probabilities(forecast)
-            playoff_teams = {team['team_id']: team for team in forecast.get('postseason', {}).get('teams', [])}
-            for team in standings:
-                playoff_team = playoff_teams.get(team['team_id'], {})
-                team.update(p_final=playoff_team.get('p_final'), p_title=playoff_team.get('p_title'))
+            standings = trade_matchup_probabilities(forecast, category_probabilities(forecast))
             if label == 'before':
                 _before_cache[cache_key] = standings
                 if len(_before_cache) > 4:
@@ -115,4 +139,4 @@ def run_trade_probability(metadata, params, progress):
 
 
 trade_probability_jobs = ProbabilityJobs(ROOT / '.cache' / 'trade_probability', runner=run_trade_probability,
-                                       cache_revision='trade-postseason-v1')
+                                       cache_revision='trade-matchups-v1')

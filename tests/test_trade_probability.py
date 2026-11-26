@@ -52,3 +52,25 @@ def test_category_probabilities_average_official_matches_from_each_side():
     assert values[1] == pytest.approx(.6)
     assert values[2] == pytest.approx(.3)
     assert values[3] is None
+
+
+def test_trade_matchups_keep_official_weeks_and_championship_pairs():
+    forecast = {
+        'weeks': [{'week': 6, 'matchups': [
+            dict(team1_id=1, team2_id=2, official=True, p_win=.7, p_loss=.2),
+            dict(team1_id=1, team2_id=3, official=False, p_win=.9, p_loss=.1),
+        ]}],
+        'postseason': {
+            'teams': [dict(team_id=1, p_final=.3, p_title=.2)],
+            'rounds': [{'week': 17, 'start': '2027-02-08', 'end': '2027-02-14', 'matchups': [
+                dict(team_id=1, opponent_id=2, bracket='championship', p_meet=.3, p_win=.6),
+                dict(team_id=1, opponent_id=3, bracket='consolation', p_meet=.2, p_win=.5),
+            ]}],
+        },
+    }
+    a, b, c = service.trade_matchup_probabilities(forecast, [{'team_id': i} for i in (1, 2, 3)])
+    assert a['p_title'] == .2
+    assert a['regular_matchups'] == [dict(week=6, opponent_id=2, p_win=.7)]
+    assert b['regular_matchups'] == [dict(week=6, opponent_id=1, p_win=.2)]
+    assert c['regular_matchups'] == []
+    assert a['playoff_matchups'][0]['opponents'] == [dict(opponent_id=2, p_meet=.3, p_win=.6)]
