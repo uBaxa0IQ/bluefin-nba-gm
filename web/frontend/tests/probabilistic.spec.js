@@ -17,7 +17,7 @@ const result = {
     }] }],
 };
 
-async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [], forecastResult = result } = {}) {
+async function setup(page, { failNext = false, extraPlayers = [], extraTeams = [], rosterMeta = [], forecastResult = result } = {}) {
     let completed = null;
     let current = null;
     let starts = 0;
@@ -29,7 +29,7 @@ async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [
             periods: { total: '2027_total', last_7: '2027_last_7' },
         } } });
         if (path === '/api/teams') return route.fulfill({ json: [
-            { team_id: 1, team_name: 'Team A' }, { team_id: 2, team_name: 'Team B' },
+            { team_id: 1, team_name: 'Team A' }, { team_id: 2, team_name: 'Team B' }, ...extraTeams,
         ] });
         if (path === '/api/weeks') return route.fulfill({ json: { current_week: 5, weeks: [4, 5], forecast_weeks: [5] } });
         if (path === '/api/all-players') return route.fulfill({ json: { players: [
@@ -61,6 +61,95 @@ async function setup(page, { failNext = false, extraPlayers = [], rosterMeta = [
     await expect(page.locator('.bf-prob-matrix tbody tr')).toHaveCount(2);
     return calls;
 }
+
+test('shift-click adds a trade leg and keeps one full-width comparison', async ({ page }) => {
+    await setup(page, {
+        extraTeams: [{ team_id: 3, team_name: 'Team C' }],
+        extraPlayers: [
+            { player_id: 12, name: 'Player D', fantasy_team_id: 1, stats: {}, z_scores: {} },
+            { player_id: 33, name: 'Player C', fantasy_team_id: 3, stats: {}, z_scores: {} },
+        ],
+    });
+    const expected = [
+        { team_id: 1, give: ['Player A', 'Player D'], receive: ['Player B', 'Player C'] },
+        { team_id: 2, give: ['Player B'], receive: ['Player A'] },
+        { team_id: 3, give: ['Player C'], receive: ['Player D'] },
+    ];
+    const main = { team_id: 1, name: 'Team A', before_z: 1, after_z: 2, delta: 1 };
+    let singleEvaluations = 0, evaluations = 0;
+    await page.route('**/api/bluefin/trade', route => {
+        singleEvaluations++;
+        return route.fulfill({ json: { my_team: main, their_team: { ...main, team_id: 2, name: 'Team B' } } });
+    });
+    await page.route('**/api/bluefin/trade-scenario', route => {
+        evaluations++;
+        expect(route.request().postDataJSON().trades).toEqual(expected);
+        return route.fulfill({ json: { teams: [main] } });
+    });
+    await page.route('**/api/probabilistic/trade/jobs', route => {
+        const { trades } = route.request().postDataJSON();
+        if (trades) expect(trades).toEqual(expected);
+        return route.fulfill({ json: { status: 'complete', result: { before: result.standings, after: result.standings } } });
+    });
+    await page.locator('nav [data-page="trades"]').click();
+    const evaluate = page.locator('[data-action="trade"]');
+    const center = () => evaluate.evaluate(el => el.getBoundingClientRect().x + el.offsetWidth / 2);
+    const originalCenter = await center();
+    await expect(page.locator('.bf-trade-roster-control button')).toHaveCount(1);
+    await page.locator('[data-trade="give"][value="Player A"]').check();
+    await page.locator('[data-trade="receive"][value="Player B"]').check();
+    const results = page.locator('.bf-trade-results');
+    const layout = () => results.evaluate(el => {
+        return [
+            '.bf-trade-result-controls', '.bf-trade-outcomes h2', '.bf-trade-metrics strong',
+            '.bf-trade-table', '.bf-trade-table tbody td', '.bf-trade-prob-grid svg',
+        ].map(selector => {
+            const node = el.querySelector(selector);
+            return [Math.round(node.getBoundingClientRect().x), getComputedStyle(node).fontSize];
+        });
+    });
+    await evaluate.click();
+    await expect(results.locator('.bf-trade-prob-grid polyline')).toHaveCount(4);
+    const originalLayout = await layout();
+    await page.locator('[data-action="toggle-rosters"]').click();
+    await expect(page.locator('.bf-inline-roster')).toHaveCount(0);
+    await evaluate.click({ modifiers: ['Shift'] });
+    await expect(page.locator('.bf-trade-leg')).toContainText('Player A ↔ Player B');
+    await expect(results).toHaveCount(0);
+    await expect(page.locator('.bf-inline-roster')).toHaveCount(2);
+    await evaluate.click({ modifiers: ['Shift'] });
+    await expect(page.locator('.bf-trade-leg')).toHaveCount(1);
+    await expect(page.locator('.bf-trade-builder')).toHaveCount(1);
+    await expect(page.locator('[data-trade="give"][value="Player A"]')).toHaveCount(0);
+    await page.locator('[data-trade="give"][value="Player D"]').check();
+    await page.locator('[data-trade="receive"][value="Player C"]').check();
+    expect(await center()).toBe(originalCenter);
+    await evaluate.click();
+    await expect(page.locator('.bf-trade-prob-grid polyline')).toHaveCount(2);
+    await expect(results.locator('.bf-trade-outcomes h2').first()).toHaveText('Team A');
+    await expect(results.locator('.bf-trade-table thead tr')).toHaveCount(2);
+    await expect(results.locator('.bf-trade-table thead th[scope="colgroup"]')).toHaveCount(1);
+    await expect(results.locator('.bf-trade-prob-grid svg')).toHaveCount(1);
+    await expect(results.locator('.bf-trade-match-trigger button')).toHaveText('Матчапы');
+    await expect(results).not.toContainText('Team B');
+    expect(await layout()).toEqual(originalLayout);
+    const metrics = results.locator('.bf-trade-outcomes').first().locator('.bf-trade-metrics > div');
+    const desktopMetrics = await metrics.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().top));
+    expect(new Set(desktopMetrics).size).toBe(1);
+    const chart = results.locator('.bf-trade-prob-grid svg');
+    const impact = results.locator('.bf-trade-prob-impact');
+    const desktopChart = await chart.boundingBox(), desktopImpact = await impact.boundingBox();
+    expect(desktopImpact.x).toBeGreaterThan(desktopChart.x + desktopChart.width);
+    const summaryMetrics = await impact.locator('.bf-trade-metrics').boundingBox();
+    const midpoint = ({ y, height }) => y + height / 2;
+    expect(Math.abs(midpoint(summaryMetrics) - midpoint(desktopChart))).toBeLessThan(2);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileChart = await chart.boundingBox(), mobileImpact = await impact.boundingBox();
+    expect(mobileImpact.y).toBeGreaterThan(mobileChart.y + mobileChart.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(singleEvaluations).toBe(1);
+    expect(evaluations).toBe(1);
+});
 
 test('playoffs show the team path and open matchup details from any cell', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('bluefin-live-v1:123:2027', JSON.stringify({
@@ -382,7 +471,7 @@ test('roster contribution streams rows, opens details and drops results after a 
     await expect(page.locator('.bf-contribution-detail')).toHaveCount(0);
 });
 
-test('trade displays baseline first, then paired rank curves and clears stale results', async ({ page }) => {
+test('trade displays baseline first, then paired rank curves and clears stale results', async ({ page }, testInfo) => {
     await setup(page);
     const team = { name: 'Team', before_z: 1, after_z: 2, delta: 1, categories: {}, raw_categories: {} };
     await page.route('**/api/bluefin/trade', route => route.fulfill({ json: { my_team: team, their_team: team } }));
@@ -443,7 +532,7 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await expect(page.locator('.bf-trade-prob-impact section').first()).toContainText('1.3 → 1.4');
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: 'E:/NBAFantasyAnalytics/.cache/trade-probability-mobile.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('trade-probability-mobile.png'), fullPage: true });
     await page.locator('[data-trade="give"]').first().uncheck();
     await expect(page.locator('.bf-trade-prob')).toHaveCount(0);
 });

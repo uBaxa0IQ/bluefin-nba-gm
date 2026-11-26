@@ -1,4 +1,4 @@
-Object.assign(s,{lang:'ru',coloring:'full',theme:document.documentElement.dataset.theme??'system',tradeMyTeam:null,rosterOpen:{give:true,receive:true},rosterScroll:{give:0,receive:0},giveSearch:'',receiveSearch:'',tradeValues:'raw',tradeSummaryOpen:false,analyticsMetric:'PTS',analyticsWindow:'20'});
+Object.assign(s,{lang:'ru',coloring:'full',theme:document.documentElement.dataset.theme??'system',tradeMyTeam:null,tradeLegs:[],rosterOpen:{give:true,receive:true},rosterScroll:{give:0,receive:0},giveSearch:'',receiveSearch:'',tradeValues:'raw',tradeSummaryOpen:false,analyticsMetric:'PTS',analyticsWindow:'20'});
 try{const ui=JSON.parse(localStorage.getItem('bluefin-ui')??'{}');s.lang=ui.lang==='en'?'en':'ru';s.coloring=['full','text','none'].includes(ui.coloring)?ui.coloring:'full';}catch{}
 function openRoute(page,pid){s.page=page;s.overlay=null;if(page==='team'){s.team=+pid||myTeam;s.tab='overview';s.compare=null;}if(page==='player'){s.player=pid;s.profileTab='profile';s.logsOffset=0;}history.replaceState(null,'','#'+page+(pid?'/'+encodeURIComponent(pid):''));render();}
 app.addEventListener('click',async event=>{
@@ -15,6 +15,14 @@ app.addEventListener('click',async event=>{
  if(el.dataset.match){s.detail={team:+el.dataset.match,week:+el.dataset.week};s.overlay='match';render();return;}
  if(el.dataset.simTeam){s.detail={team:+el.dataset.simTeam,path:el.dataset.source==='forecast'?seasonPath():simulationPath(),season:el.dataset.source==='forecast'||s.simMode==='calendar'};s.overlay='sim-details';render();return;}
  const action=el.dataset.action;
+ if(action==='trade-edit-leg'||action==='trade-remove-leg'){
+  const [leg]=s.tradeLegs.splice(+el.dataset.index,1);
+  if(action==='trade-edit-leg'){
+   if(s.give.length||s.receive.length)s.tradeLegs.push(currentTradeLeg());
+   openTradeLeg(leg);
+  }
+  invalidate();save();render();return;
+ }
  if(action==='save-trade'){saveCurrentTrade();return;}
  if(action==='saved-trades'){s.savedTradesError='';s.overlay='saved-trades';render();return;}
  if(action==='saved-trade-load'){loadSavedTrade(el.dataset.id);return;}
@@ -32,10 +40,24 @@ app.addEventListener('click',async event=>{
  if(action==='toggle-roster'){s.rosterOpen[el.dataset.side]=!s.rosterOpen[el.dataset.side];save();render();return;}
  if(action==='toggle-rosters'){const open=!(s.rosterOpen.give||s.rosterOpen.receive);s.rosterOpen={give:open,receive:open};save();render();return;}
  if(action==='trade'){
+  if(event.shiftKey){
+   if(!s.give.length||!s.receive.length||!tradeScenario())return;
+   const leg=currentTradeLeg();
+   s.tradeLegs.push(leg);
+   openTradeLeg({my:leg.my,other:teams.find(t=>t.team_id!==leg.my&&t.team_id!==leg.other)?.team_id??leg.other,give:[],receive:[]});
+   s.rosterOpen={give:true,receive:true};
+   invalidate();save();render();return;
+  }
+  const trades=s.tradeLegs.length?tradeScenario():null;
+  if(s.tradeLegs.length&&!trades)return;
   s.tradeBusy=true;s.tradeError='';render();
   const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),...(injuryMode()?{punt_team_id:myTeam}:{}),calculation_engine:'calendar',custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
   const fingerprint=tradeProbabilityKey();
-  try{const d=await request('/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===tradeProbabilityKey()){s.trade=d;if(probabilityEnabled())void tradeProbabilityRun(body);}}
+  if(trades){
+   body.trades=trades;
+   if(body.custom_team_players)for(const {team_id} of trades)body.custom_team_players[team_id]=selected(team_id).map(p=>p.name);
+  }
+  try{const d=await request(trades?'/api/bluefin/trade-scenario':'/api/bluefin/trade',{method:'POST',body:JSON.stringify(body)});if(fingerprint===tradeProbabilityKey()){s.trade=d;if(probabilityEnabled())void tradeProbabilityRun(body);}}
   catch(e){s.tradeError=e.message;}finally{s.tradeBusy=false;render();}
  }
 });
@@ -49,7 +71,7 @@ app.addEventListener('change',async event=>{
    if(!teams.some(t=>t.team_id===s.mainTeam)){s.mainTeam=previous;return;}
    myTeam=s.mainTeam;s.team=myTeam;s.pickTeam=myTeam;s.tab='overview';s.compare=null;
    if(s.tradeTeam===myTeam)s.tradeTeam=s.tradeMyTeam;
-   s.tradeMyTeam=myTeam;s.give=[];s.receive=[];invalidate();save();
+   s.tradeMyTeam=myTeam;s.give=[];s.receive=[];s.tradeLegs=[];invalidate();save();
    if(s.page==='team')history.replaceState(null,'','#team/'+myTeam);
   }
   if(k==='team'){s.tab='overview';s.compare=null;}

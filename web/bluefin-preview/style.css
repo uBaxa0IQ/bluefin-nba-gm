@@ -217,11 +217,12 @@ html{scrollbar-gutter:stable}
 #paper-exploration .bf-standings .bf-team-details:hover{color:var(--pe-blue)}
 #paper-exploration .bf-trade-builder{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin:15px 0 24px}
 #paper-exploration .bf-trade-builder section{border-top:1px solid var(--pe-line);padding:20px 0;min-height:135px}
+#paper-exploration .bf-trade-leg{gap:16px;padding:8px 0;border-bottom:1px solid var(--pe-line)}
 #paper-exploration .bf-chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-height:36px}
 #paper-exploration .bf-chip{display:inline-flex;align-items:center;gap:12px;padding:7px 10px;border-radius:3px;background:#4566dc0c;border:1px solid var(--pe-line);font-size:12px}
 #paper-exploration .bf-chip button{border:0;background:none;color:var(--pe-muted);padding:0;font-size:16px}
 #paper-exploration .bf-trade-run{min-height:36px;margin-bottom:24px;justify-content:space-between}
-#paper-exploration .bf-trade-outcomes{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin:35px 0 28px}
+#paper-exploration .bf-trade-outcomes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:38px;margin:35px 0 28px}
 #paper-exploration .bf-trade-metrics{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
 #paper-exploration .bf-trade-metrics>div{border-top:1px solid var(--pe-line);padding:12px 0}
 #paper-exploration .bf-trade-metrics span{display:block;font-size:11px;color:var(--pe-muted);margin-bottom:8px}
@@ -353,6 +354,16 @@ body.bf-modal-open{overflow:hidden}
 #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section>:is(h2,h3,.pe-section-head){margin:0;min-height:32px;align-content:center}
 #paper-exploration .bf-trade-prob-grid{column-gap:38px;row-gap:0}
 #paper-exploration .bf-trade-prob-grid svg{display:block;margin-top:12px}
+#paper-exploration .bf-trade-results-single>.bf-trade-outcomes>section{grid-column:1/-1}
+#paper-exploration .bf-trade-results-single :is(.bf-trade-prob-grid,.bf-trade-prob-impact){grid-template-columns:minmax(0,1fr)}
+@media(min-width:901px){
+ #paper-exploration .bf-trade-results-single>.bf-trade-outcomes .bf-trade-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+ #paper-exploration .bf-trade-results-single .bf-trade-prob-content{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:38px}
+ #paper-exploration .bf-trade-results-single .bf-trade-prob-impact{margin:0}
+ #paper-exploration .bf-trade-results-single .bf-trade-prob-impact>section{display:grid;grid-template-rows:auto 1fr}
+ #paper-exploration .bf-trade-results-single .bf-trade-prob-impact h2{margin:0;min-height:32px;align-content:center}
+ #paper-exploration .bf-trade-results-single .bf-trade-prob-impact .bf-trade-metrics{align-self:center;margin-top:12px}
+}
 @media(max-width:800px){
  #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid){grid-template-columns:minmax(0,1fr);row-gap:22px}
  #paper-exploration :is(.bf-analytics-charts,.bf-history-charts,.bf-trade-prob-grid)>section{grid-row:auto;display:block}

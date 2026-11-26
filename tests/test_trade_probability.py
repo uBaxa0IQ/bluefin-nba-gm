@@ -54,6 +54,23 @@ def test_category_probabilities_average_official_matches_from_each_side():
     assert values[3] is None
 
 
+def test_trade_scenario_moves_two_pairs_from_one_team_simultaneously(inputs, monkeypatch):
+    meta, params = inputs
+    meta.get_teams = lambda: [SimpleNamespace(team_id=i, team_name=str(i)) for i in (1, 2, 3)]
+    snapshot = LeagueSnapshot('test', datetime.now(timezone.utc), 5, 30,
+        (player('A', 1), player('D', 1), player('B', 2), player('C', 3)), {})
+    monkeypatch.setattr(service, 'build_league_snapshot', lambda *args: snapshot)
+    moves = [
+        {'team_id': 1, 'give': ['A', 'D'], 'receive': ['B', 'C']},
+        {'team_id': 2, 'give': ['B'], 'receive': ['A']},
+        {'team_id': 3, 'give': ['C'], 'receive': ['D']},
+    ]
+    _, after, _ = service.trade_snapshots(meta, {**params, 'trades': moves})
+    assert [p.name for p in after.team_players(1)] == ['B', 'C']
+    assert [p.name for p in after.team_players(2)] == ['A']
+    assert [p.name for p in after.team_players(3)] == ['D']
+
+
 def test_trade_matchups_keep_official_weeks_and_championship_pairs():
     forecast = {
         'weeks': [{'week': 6, 'matchups': [

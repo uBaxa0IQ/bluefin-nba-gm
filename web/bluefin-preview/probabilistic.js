@@ -8,14 +8,15 @@ const probabilityJobKey=()=>`bluefin-probabilistic-job:${settings.season.league_
 const probabilityEnabled=()=>settings?.features?.probabilistic===true;
 
 const tradeProbability={version:0,key:null,job:null,error:''};
-const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.period,s.rosterMode,s.picks,punts(),injuryMode()?myTeam:null]);
+const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.tradeLegs,s.period,s.rosterMode,s.picks,punts(),injuryMode()?myTeam:null]);
 async function tradeProbabilityRun(body){
  const version=++tradeProbability.version;
  tradeProbability.key=tradeProbabilityKey();tradeProbability.job=null;tradeProbability.error='';
  tradeProbability.baseline=probabilityCurrentResult()?.standings??[];
  const custom={};
  if(s.rosterMode==='top_n')for(const team of teams)custom[team.team_id]=selected(team.team_id).map(p=>p.name);
- const params={my_team_id:body.my_team_id,their_team_id:body.their_team_id,i_give:body.i_give,i_receive:body.i_receive,
+ const moves=body.trades?{trades:body.trades}:{my_team_id:body.my_team_id,their_team_id:body.their_team_id,i_give:body.i_give,i_receive:body.i_receive};
+ const params={...moves,
   period:body.period,simulation_mode:body.simulation_mode,top_n_players:body.top_n_players,
   punt_categories:body.punt_categories,...(body.punt_team_id?{punt_team_id:body.punt_team_id}:{}),custom_rosters:custom,trials:3000,seed:20261116};
  render();
@@ -49,15 +50,17 @@ function tradeProbabilityPanel(){
  const job=tradeProbability.job,d=job?.result;
  const error=tradeProbability.error||(job?.status==='failed'?job.message:'');
  const before=d?.before??tradeProbability.baseline??[],after=d?.after??[];
+ const teamIds=s.tradeLegs.length?[s.tradeLegs[0].my]:[+s.tradeMyTeam,+s.tradeTeam];
  const max=Math.max(.1,...[...before,...after].flatMap(t=>Object.values(t.rank_probabilities)));
  const chart=team=>{
   const a=before.find(t=>t.team_id===team),b=after.find(t=>t.team_id===team);
-  if(!a)return `<section><h3>${E(tname(team))}</h3><div class="bf-trade-prob-loading" role="status">…</div></section>`;
+  const heading=`<h3>${E(a?.team_name??tname(team))}</h3>`;
+  if(!a)return `<section>${heading}${error||job?.status==='complete'?'':'<div class="bf-trade-prob-loading" role="status">…</div>'}</section>`;
   const ranks=Object.keys(a.rank_probabilities).map(Number).sort((x,y)=>x-y),x=r=>44+(r-1)*500/Math.max(1,ranks.length-1),y=p=>210-p/max*170;
   const line=(t,color)=>!t?'':`<polyline points="${ranks.map(r=>`${x(r)},${y(t.rank_probabilities[r])}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5"/>${ranks.map(r=>`<circle cx="${x(r)}" cy="${y(t.rank_probabilities[r])}" r="3" fill="${color}"><title>${tr('Место','Rank')} ${r} · ${t===a?tr('До','Before'):tr('После','After')}: ${probabilityPercent(t.rank_probabilities[r])}</title></circle>`).join('')}`;
-  return `<section><h3>${E(a.team_name)}</h3><svg viewBox="0 0 570 255" role="img" aria-label="${E(a.team_name)} · ${tr('Распределение итогового места в регулярке','Regular-season rank distribution')}">${[0,.5,1].map(v=>`<line x1="44" y1="${y(max*v)}" x2="544" y2="${y(max*v)}" stroke="var(--pe-line)"/><text x="36" y="${y(max*v)+4}" text-anchor="end">${fmt(max*v*100,0)}%</text>`).join('')}${ranks.map(r=>`<text x="${x(r)}" y="230" text-anchor="middle">${r}</text>`).join('')}${line(a,'var(--pe-muted)')}${line(b,'var(--pe-blue)')}<text x="294" y="252" text-anchor="middle">${tr('Место в регулярке','Regular-season rank')}</text></svg></section>`;
+  return `<section>${heading}<svg viewBox="0 0 570 255" role="img" aria-label="${E(a.team_name)} · ${tr('Распределение итогового места в регулярке','Regular-season rank distribution')}">${[0,.5,1].map(v=>`<line x1="44" y1="${y(max*v)}" x2="544" y2="${y(max*v)}" stroke="var(--pe-line)"/><text x="36" y="${y(max*v)+4}" text-anchor="end">${fmt(max*v*100,0)}%</text>`).join('')}${ranks.map(r=>`<text x="${x(r)}" y="230" text-anchor="middle">${r}</text>`).join('')}${line(a,'var(--pe-muted)')}${line(b,'var(--pe-blue)')}<text x="294" y="252" text-anchor="middle">${tr('Место в регулярке','Regular-season rank')}</text></svg></section>`;
  };
- const summary=[+s.tradeMyTeam,+s.tradeTeam].map(team=>{
+ const summary=teamIds.map(team=>{
   const a=before.find(t=>t.team_id===team),b=after.find(t=>t.team_id===team);
   const rankDelta=a&&b?a.expected_rank-b.expected_rank:null;
   const show=(row,key)=>row&&key in row?probabilityPercent(row[key]):job?.status==='complete'||error?'—':'…';
@@ -65,9 +68,9 @@ function tradeProbabilityPanel(){
    const delta=finite(a?.[key])&&finite(b?.[key])?(b[key]-a[key])*100:null;
    return `<div><span>${label}</span><strong>${show(a,key)} → ${show(b,key)}</strong>${delta===null?'':`<small style="${tone(delta/10)}">${delta>0?'+':''}${fmt(delta,1)} ${tr('п.п.','pp')}</small>`}</div>`;
   }).join('');
-  return `<section class="bf-trade-match-trigger" data-action="trade-matchups" data-team="${team}"><h2><button class="bf-prob-team" aria-haspopup="dialog" aria-label="${E(tname(team))} · ${tr('Матчапы','Matchups')}">${E(tname(team))}</button></h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div>${metrics}</div></section>`;
+  return `<section class="bf-trade-match-trigger" data-action="trade-matchups" data-team="${team}"><h2><button class="bf-prob-team" aria-haspopup="dialog" aria-label="${E(tname(team))} · ${tr('Матчапы','Matchups')}">${teamIds.length===1?tr('Матчапы','Matchups'):E(tname(team))}</button></h2><div class="bf-trade-metrics"><div><span>${tr('Ожидаемое место','Expected rank')}</span><strong>${a?fmt(a.expected_rank,1):'…'} → ${b?fmt(b.expected_rank,1):'…'}</strong>${rankDelta!==null?`<small style="${tone(rankDelta*1.5)}">${rankDelta>0?'↑':rankDelta<0?'↓':''}${fmt(Math.abs(rankDelta),1)}</small>`:''}</div>${metrics}</div></section>`;
  }).join('');
- return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-grid">${[+s.tradeMyTeam,+s.tradeTeam].map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></section>
+ return `<section class="bf-trade-prob"><div class="pe-section-head"><h2>${tr('Место в регулярке','Regular-season finish')}</h2></div><div class="bf-trade-prob-legend"><span>● ${tr('До обмена','Before trade')}</span><span>● ${tr('После обмена','After trade')}</span></div>${error?`<div class="pe-error" role="alert">${E(error)}</div>`:''}<div class="bf-trade-prob-content"><div class="bf-trade-prob-grid">${teamIds.map(chart).join('')}</div><div class="bf-trade-outcomes bf-trade-prob-impact">${summary}</div></div></section>
  `;
 }
 

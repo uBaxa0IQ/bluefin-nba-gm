@@ -17,7 +17,8 @@ from services.season import project_regular_season
 from services.live_matchups import current_matchup
 from dataclasses import replace
 from fastapi import Request as FastAPIRequest
-from models import TradeAnalysisRequest
+from models import MultiTeamTradeRequest, TradeAnalysisRequest
+from services.trade_probability import trade_snapshots
 from core.trade_roster import selected_roster_after_trade
 from core.z_score import calculate_z_scores
 from core.analytics_cache import analytics_version, digest
@@ -106,6 +107,33 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
 
 
 def espn(url, ttl=600):
+@router.post('/trade-scenario')
+def trade_scenario(body: MultiTeamTradeRequest, http_request: FastAPIRequest, meta=Depends(get_league_meta)):
+    from routers.trades import analyze_multi_team_trade
+
+    custom = body.custom_team_players or {}
+    try:
+        before, after, after_custom = trade_snapshots(meta, {**body.model_dump(), 'custom_rosters': custom})
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    result = analyze_multi_team_trade(body, http_request, meta)
+    if 'error' in result:
+        return result
+    current = current_matchup(meta, before.current_matchup_period, before.active_slots)
+    options = dict(simulation_mode=body.simulation_mode, top_n_players=body.top_n_players,
+                   punt_categories=body.punt_categories, record_forecasts=False,
+                   punt_team_id=body.punt_team_id, current=current)
+    places = {}
+    for side, snapshot, rosters in [('before', before, custom), ('after', after, after_custom)]:
+        standings = project_regular_season(meta, body.period, snapshot_override=snapshot,
+                                           custom_rosters=rosters, **options)['standings']
+        places[side] = {t['team_id']: t['projected_position'] for t in standings}
+    result['simulation_ranks']['calendar'] = {
+        t.team_id: {side: ranks[t.team_id] for side, ranks in places.items()} for t in body.trades
+    }
+    return result
+
+
     with _lock:
         cached = _cache.get(url)
         if cached and monotonic() - cached[0] < ttl:

@@ -65,27 +65,40 @@ def trade_matchup_probabilities(forecast, standings):
 def trade_snapshots(metadata, params):
     mode = params.get('simulation_mode', 'top_n')
     snapshot = build_league_snapshot(metadata, params['period'], **projection_snapshot_options(mode))
-    a, b = params['my_team_id'], params['their_team_id']
-    give, receive = params['i_give'], params['i_receive']
-    if a == b or not give or not receive:
-        raise ValueError('Выберите две команды и игроков для обмена')
+    if 'trades' in params:
+        legs = params['trades']
+        moves = {t['team_id']: {'give': t['give'], 'receive': t['receive']} for t in legs}
+        give = [name for move in moves.values() for name in move['give']]
+        receive = [name for move in moves.values() for name in move['receive']]
+        if len(moves) != len(legs) or not give or len(give) != len(set(give)) or sorted(give) != sorted(receive):
+            raise ValueError('Проверьте участников и переходы игроков')
+        if any(set(move['give']) & set(move['receive']) or not (move['give'] or move['receive']) for move in moves.values()):
+            raise ValueError('Каждый игрок должен перейти в другую команду')
+    else:
+        a, b = params['my_team_id'], params['their_team_id']
+        give, receive = params['i_give'], params['i_receive']
+        if a == b or not give or not receive:
+            raise ValueError('Выберите две команды и игроков для обмена')
+        moves = {a: {'give': give, 'receive': receive}, b: {'give': receive, 'receive': give}}
     ownership = {t.team_id: {p.name for p in snapshot.team_players(t.team_id)} for t in metadata.get_teams()}
     if set(params['custom_rosters']) - ownership.keys():
         raise ValueError('Неизвестная команда')
-    validate_ownership(ownership, {a: {'give': give, 'receive': receive}, b: {'give': receive, 'receive': give}})
+    validate_ownership(ownership, moves)
+    destinations = {name: team for team, move in moves.items() for name in move['receive']}
+    transfers = {(team, name): destinations[name] for team, move in moves.items() for name in move['give']}
     names = {t.team_id: t.team_name for t in metadata.get_teams()}
     moved = []
     for player in snapshot.players:
-        destination = b if player.fantasy_team_id == a and player.name in give else a if player.fantasy_team_id == b and player.name in receive else None
+        destination = transfers.get((player.fantasy_team_id, player.name))
         moved.append(replace(player, fantasy_team_id=destination, fantasy_team_name=names[destination],
                              lineup_slot='BE' if mode == INJURY_MODE else player.lineup_slot)
                      if destination is not None else player)
     after = replace(snapshot, players=tuple(moved))
     custom = params['custom_rosters']
     after_custom = dict(custom)
-    for team, outgoing, incoming in ((a, give, receive), (b, receive, give)):
+    for team, move in moves.items():
         if team in custom:
-            after_custom[team] = selected_roster_after_trade(custom[team], outgoing, incoming,
+            after_custom[team] = selected_roster_after_trade(custom[team], move['give'], move['receive'],
                 [p.as_projection_player() for p in after.team_players(team)], params['top_n_players'], params['punt_categories'])
     return snapshot, after, after_custom
 
@@ -108,7 +121,7 @@ def run_trade_probability(metadata, params, progress):
         ROOT / '.cache' / 'monte_carlo' / 'game_logs', as_of=datetime.fromisoformat(before['metadata']['as_of']),
         excluded_events=before['excluded_events'],
         progress=lambda done, total: progress('histories', done, total))
-    ids = {params['my_team_id'], params['their_team_id']}
+    ids = {t['team_id'] for t in params['trades']} if 'trades' in params else {params['my_team_id'], params['their_team_id']}
     result = {'trials': 3000, 'before': None, 'after': None}
     if params['simulation_mode'] == INJURY_MODE:
         result['roster_timelines'] = {label: plan['metadata']['roster_timelines']

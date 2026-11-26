@@ -167,6 +167,7 @@ function currentSavedTrade(){
 function resolveSavedTrade(trade){
  const sides=trade.teams.map(team=>({team:team.id,players:team.players.map(p=>roster(team.id).find(current=>id(current)===p.player_id))}));
  return sides.every(t=>teams.some(team=>team.team_id===t.team)&&t.players.every(Boolean))?sides:null;
+ if(s.tradeLegs?.length)return null;
 }
 function writeSavedTrades(trades){
  try{localStorage.setItem(savedTradesKey(),JSON.stringify(trades));s.savedTradesError='';return true;}
@@ -189,27 +190,54 @@ function loadSavedTrade(tradeId){
 function savedTradesDialog(){
  const saved=readSavedTrades();
  return `${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}${saved.length?`<div class="bf-saved-trades">${saved.map(t=>{
+ s.tradeLegs=[];
   const valid=!!resolveSavedTrade(t);
   return `<div class="bf-saved-trade"><button class="bf-saved-trade-load" data-action="saved-trade-load" data-id="${E(t.id)}" ${valid?'':'disabled'}>${t.teams.map(team=>`<span><small>${E(teams.find(current=>current.team_id===team.id)?.team_name??team.name)}</small><span>${team.players.map(p=>E(roster(team.id).find(current=>id(current)===p.player_id)?.name??p.name)).join(', ')}</span></span>`).join('<span class="bf-saved-trade-arrow">↔</span>')}${valid?'':`<small class="bf-saved-trade-stale">${tr('Состав изменился','Roster changed')}</small>`}</button><button class="pe-link bf-saved-trade-delete" data-action="saved-trade-delete" data-id="${E(t.id)}" aria-label="${E(tr('Удалить обмен','Delete trade'))}">×</button></div>`;
  }).join('')}</div>`:blank(tr('Нет сохранённых обменов','No saved trades'))}`;
 }
 function tradePage(){
  const side=(team,key)=>{
-  const query=s[key+'Search']??'',ps=sorted(roster(team)).filter(p=>p.name.toLowerCase().includes(query.toLowerCase()));
+  const query=s[key+'Search']??'',ps=sorted(roster(team)).filter(p=>!included.has(p.name)&&p.name.toLowerCase().includes(query.toLowerCase()));
   return `<section><div class="pe-section-head"><select class="pe-select" data-control="${key==='give'?'tradeMyTeam':'tradeTeam'}" aria-label="${tr('Команда','Team')} · ${tr(key==='give'?'Отдаём':'Получаем',key==='give'?'Sending':'Receiving')}">${teamOptions(team)}</select><span class="pe-muted">${tr('Отдаёт','Sends')}</span></div>
    <div class="bf-chips">${tradePlayerChips(key)||`<span class="pe-muted">${tr('Игроки не выбраны','No players selected')}</span>`}</div>
 
    ${s.rosterOpen[key]?`<div class="bf-inline-roster" id="trade-roster-${key}"><input class="pe-search" placeholder="${tr('Найти игрока','Find player')}" aria-label="${tr('Поиск игрока','Player search')} · ${E(tname(team))}" data-input="${key}Search" value="${E(query)}"><div class="bf-roster-list" data-roster-scroll="${key}">${ps.map(p=>`<label class="bf-roster-option"><input type="checkbox" data-trade="${key}" value="${E(p.name)}" ${s[key].includes(p.name)?'checked':''}><span>${E(p.name)}<small>${E(p.position)} · ${E(p.nba_team)}</small></span><span style="${numberTone(z(p))}">${fmt(z(p))}</span></label>`).join('')}${ps.length?'':blank(tr('Игроков нет','No players'))}</div></div>`:''}</section>`;
  };
+const currentTradeLeg=()=>({my:s.tradeMyTeam,other:s.tradeTeam,give:[...s.give],receive:[...s.receive]});
+function openTradeLeg(leg){
+ s.tradeMyTeam=leg.my;s.tradeTeam=leg.other;s.give=[...leg.give];s.receive=[...leg.receive];
+ s.giveSearch='';s.receiveSearch='';s.rosterScroll={give:0,receive:0};
+}
+function tradeScenario(){
+ const legs=[...s.tradeLegs];
+ if(s.give.length||s.receive.length)legs.push(currentTradeLeg());
+ const moves=new Map(),used=new Set();
+ for(const {my,other,give,receive} of legs){
+  if(!give.length||!receive.length||my===other)return null;
+  for(const [from,to,names] of [[my,other,give],[other,my,receive]]){
+   if(!moves.has(from))moves.set(from,{team_id:from,give:[],receive:[]});
+   if(!moves.has(to))moves.set(to,{team_id:to,give:[],receive:[]});
+   for(const name of names){
+    if(used.has(name)||!roster(from).some(p=>p.name===name))return null;
+    used.add(name);moves.get(from).give.push(name);moves.get(to).receive.push(name);
+   }
+  }
+ }
+ return [...moves.values()];
+}
  const anyOpen=s.rosterOpen.give||s.rosterOpen.receive;
+ const included=new Set(s.tradeLegs.flatMap(leg=>[...leg.give,...leg.receive]));
  const proposal=currentSavedTrade(),saved=readSavedTrades(),alreadySaved=proposal&&saved.some(t=>savedTradeSignature(t)===savedTradeSignature(proposal));
- return `<div class="pe-head"><h1>${tr('Обмены','Trades')}</h1><div class="pe-row bf-saved-trade-controls"><button class="pe-link" data-action="save-trade" ${!proposal||alreadySaved?'disabled':''}>${alreadySaved?tr('Сохранено','Saved'):tr('Сохранить','Save')}</button><button class="pe-link" data-action="saved-trades">${tr('Сохранённые','Saved trades')}${saved.length?` · ${saved.length}`:''}</button></div></div>${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}<div class="bf-trade-roster-control"><button class="pe-link" data-action="toggle-rosters" aria-expanded="${Boolean(anyOpen)}">${anyOpen?tr('Свернуть составы','Collapse rosters'):tr('Раскрыть составы','Show rosters')}</button></div>
+ return `<div class="pe-head"><h1>${tr('Обмены','Trades')}</h1><div class="pe-row bf-saved-trade-controls">${scenario?'':`<button class="pe-link" data-action="save-trade" ${!proposal||alreadySaved?'disabled':''}>${alreadySaved?tr('Сохранено','Saved'):tr('Сохранить','Save')}</button>`}<button class="pe-link" data-action="saved-trades">${tr('Сохранённые','Saved trades')}${saved.length?` · ${saved.length}`:''}</button></div></div>${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}
+  ${legs}<div class="bf-trade-roster-control"><button class="pe-link" data-action="toggle-rosters" aria-expanded="${Boolean(anyOpen)}">${anyOpen?tr('Свернуть составы','Collapse rosters'):tr('Раскрыть составы','Show rosters')}</button></div>
   <div class="bf-trade-builder">${side(s.tradeMyTeam,'give')}${side(s.tradeTeam,'receive')}</div>
-  <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!s.give.length||!s.receive.length)}</div>
+  <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!valid,s.give.length&&s.receive.length?`title="${tr('Добавить ещё обмен · Shift + клик','Add another trade · Shift + click')}"`:'')}</div>
   ${s.tradeError?`<div class="pe-error" role="alert">${E(s.tradeError)}</div>`:''}
-  ${s.trade?`<div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')],...(probabilityEnabled()?[['probability',tr('Вероятности','Probabilities')]]:[])],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}`:''}`;
+  ${s.trade?`<div class="bf-trade-results${scenario?' bf-trade-results-single':''}"><div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')],...(probabilityEnabled()?[['probability',tr('Вероятности','Probabilities')]]:[])],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}</div>`:''}`;
 }
 function tradeRank(rank){
+ const scenario=s.tradeLegs.length>0, valid=scenario?Boolean(tradeScenario()):Boolean(currentSavedTrade());
+ const legs=s.tradeLegs.map(({give,receive},i)=>`<div class="pe-row bf-trade-leg"><button class="pe-link" data-action="trade-edit-leg" data-index="${i}">${E(give.join(', '))} ↔ ${E(receive.join(', '))}</button><button class="pe-link" data-action="trade-remove-leg" data-index="${i}" aria-label="${tr('Убрать обмен','Remove trade')}">×</button></div>`).join('');
  if(!Number.isInteger(rank)||rank<1)return '';
  const label=tr(`Место по средним: ${rank} из ${teams.length}`,`Rank by averages: ${rank} of ${teams.length}`);
  return `<span class="bf-trade-rank" aria-label="${E(label)}" title="${E(label)}">${rank}</span>`;
@@ -220,10 +248,10 @@ function tradeRankChange(r){
  return `<span class="bf-trade-rank-change" aria-label="${E(tr('Изменение позиции по средним','Change in rank by averages'))}: ${delta>0?'+':''}${delta}">${delta>0?'↑':'↓'}${Math.abs(delta)}</span>`;
 }
 function tradeResult(d){
- const keys=['my_team','their_team'],groups=keys.map(k=>d[k]),rawValues=s.tradeValues==='raw',rankValues=s.tradeValues==='ranks';
+ const keys=d.teams?[s.tradeLegs[0].my]:['my_team','their_team'],groups=d.teams?keys.map(id=>({...d.teams.find(t=>t.team_id===id),name:tname(id)})):keys.map(k=>d[k]),rawValues=s.tradeValues==='raw',rankValues=s.tradeValues==='ranks';
  const block=(key,t)=>`<section><h2>${E(t.name)}</h2><div class="bf-trade-metrics"><div><span>${punts().length?'Z стратегии':'Σ Z'}</span><strong>${fmt(t.before_z)} → ${fmt(t.after_z)}</strong><small style="${tone(t.delta)}">${t.delta>0?'+':''}${fmt(t.delta)}</small></div>${[['z_scores','Место по Z'],['team_stats_avg','Место по средним'],['calendar','Прогноз места']].map(([kind,l])=>{const r=d.simulation_ranks?.[kind]?.[key];return `<div><span>${l}</span><strong>${r?.before??'—'} → ${r?.after??'—'}</strong>${r&&r.before!==r.after?`<small style="${tone((r.before-r.after)*1.5)}">${r.before>r.after?'↑':'↓'}${Math.abs(r.before-r.after)}</small>`:''}</div>`;}).join('')}</div></section>`;
  const rows=cats.filter(c=>!punts().includes(c)).map(c=>`<tr><td>${E(c)}</td>${groups.map((t,i)=>{
-  if(s.tradeValues==='probability')return tradeCategoryProbabilityCells(i===0?s.tradeMyTeam:s.tradeTeam,c);
+  if(s.tradeValues==='probability')return tradeCategoryProbabilityCells(d.teams?keys[i]:i===0?s.tradeMyTeam:s.tradeTeam,c);
   const v=(rawValues?t.raw_categories:t.categories)?.[c],rank=d.category_rankings?.[keys[i]]?.[c];
   if(rankValues){const color=tone(Number.isInteger(rank?.before)&&Number.isInteger(rank?.after)?rank.before-rank.after:NaN);return `<td style="${color}">${rank?.before??'—'}</td><td style="${color}">${rank?.after??'—'}</td><td style="${color}">${tradeRankChange(rank)||'—'}</td>`;}
   if(!v)return '<td>—</td><td>—</td><td>—</td>';
@@ -233,5 +261,8 @@ function tradeResult(d){
   const color=tone(rawValues?benefit/Math.max(Math.abs(v.before),Math.abs(v.after),1):benefit,rawValues ? .1 : 3);
   return `<td style="${color}" class="bf-trade-before"><span class="bf-trade-value">${show(v.before)}</span></td><td style="${color}" class="bf-trade-after"><span class="bf-trade-value">${show(v.after)}</span></td><td style="${color}"><span class="bf-trade-value bf-trade-delta">${delta}</span></td>`;
  }).join('')}</tr>`).join('');
- return `<div class="bf-trade-outcomes">${groups.map((t,i)=>block(keys[i],t)).join('')}</div><div class="pe-table-wrap"><table class="bf-trade-table"><thead><tr><th rowspan="2" scope="col">${tr('Категория','Category')}</th>${groups.map(t=>`<th colspan="3" scope="colgroup">${E(t.name)}</th>`).join('')}</tr><tr>${groups.map(()=>`<th scope="col">${tr('До','Before')}</th><th scope="col">${tr('После','After')}</th><th scope="col">Δ</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+ const categoryHeader=tr('Категория','Category');
+ const valueHeaders=`<th scope="col">${tr('До','Before')}</th><th scope="col">${tr('После','After')}</th><th scope="col">Δ</th>`;
+ const headers=`<tr><th rowspan="2" scope="col">${categoryHeader}</th>${groups.map(t=>`<th colspan="3" scope="colgroup">${E(t.name)}</th>`).join('')}</tr><tr>${valueHeaders.repeat(groups.length)}</tr>`;
+ return `<div class="bf-trade-outcomes">${groups.map((t,i)=>block(keys[i],t)).join('')}</div><div class="pe-table-wrap"><table class="bf-trade-table"><thead>${headers}</thead><tbody>${rows}</tbody></table></div>`;
 }

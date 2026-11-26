@@ -10,6 +10,7 @@ from core import feature_flags
 from services.probability_jobs import probability_jobs
 from services.trade_probability import trade_probability_jobs, trade_snapshots
 from services.roster_contribution import contribution_jobs
+from models import TeamTrade
 
 router = APIRouter(prefix='/api/probabilistic', tags=['probabilistic'])
 
@@ -48,6 +49,11 @@ class TradeProbabilityRequest(ProbabilityRequest):
     trials: Literal[3000] = 3000
 
 
+class TradeScenarioRequest(ProbabilityRequest):
+    trades: list[TeamTrade] = Field(min_length=2, max_length=32)
+    trials: Literal[3000] = 3000
+
+
 class ContributionRequest(ProbabilityRequest):
     team_id: int
     trials: Literal[3000] = 3000
@@ -77,7 +83,7 @@ def get_contribution(job_id: str, metadata=Depends(get_league_meta)):
 
 
 @router.post('/trade/jobs')
-def start_trade_probability(body: TradeProbabilityRequest, metadata=Depends(get_league_meta)):
+def start_trade_probability(body: TradeProbabilityRequest | TradeScenarioRequest, metadata=Depends(get_league_meta)):
     if not feature_flags.PROBABILISTIC_ENABLED:
         raise HTTPException(503, 'Вероятностный режим временно отключён')
     params = body.model_dump(exclude_none=True)
