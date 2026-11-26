@@ -75,12 +75,14 @@ class InjuryContext:
                     row['available_from'] = expected
                     returns.append((expected, row))
 
-        def drop_on(day):
+        def drop_on(day, incoming=None):
             # A return earlier on this same day occupies its slot for the day.
             candidates = [p for p in regular if p.get('droppable', True) and p.get('activated_on') != day]
             if not candidates:
                 return None
             dropped = min(candidates, key=lambda p: (overall_z(p, punts), p['name']))
+            if incoming is not None and overall_z(incoming, punts) <= overall_z(dropped, punts):
+                return None
             regular.remove(dropped)
             dropped['available_until'] = day
             return dropped
@@ -96,7 +98,7 @@ class InjuryContext:
         for day, player in sorted(activations, key=lambda pair: (pair[0], -overall_z(pair[1], punts), pair[1]['name'])):
             dropped = None
             if len(regular) >= self.roster_limit:
-                dropped = drop_on(day)
+                dropped = drop_on(day, incoming=player)
                 if dropped is None:
                     events.append({'date': day.isoformat(), 'kind': 'activation_blocked', 'player': player['name']})
                     continue

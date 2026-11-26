@@ -9,7 +9,7 @@ from .weighted_coefficients import load_weighted_coefficients
 from .injuries import NBA_TIMEZONE, projection_injury_report
 from .live_games import LIVE_CACHE_SECONDS, live_cache_tick
 
-CACHE_REVISION = 'analytics-v3'
+CACHE_REVISION = 'analytics-v4'
 
 
 def canonical(value):

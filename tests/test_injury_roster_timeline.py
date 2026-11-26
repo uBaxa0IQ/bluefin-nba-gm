@@ -62,6 +62,21 @@ def test_ir_drop_uses_punts_only_for_the_configured_team():
     assert replace(context, punt_categories=frozenset()).plan(roster, 1)[1]['events'][0]['dropped'] == 'Big'
 
 
+def test_ir_return_keeps_existing_player_when_worse_under_team_punts():
+    returning = replace(player(1, 'Returning shooter', slot='IR'), z_scores={'PTS': 5, 'REB': -3})
+    incumbent = replace(player(2, 'Incumbent'), z_scores={'PTS': -1, 'REB': -1})
+    roster = [p.as_projection_player() for p in (returning, incumbent)]
+    context = InjuryContext(date(2026, 12, 1), 1, {1: out(1, '2026-12-02')},
+                            punt_team_id=1, punt_categories=frozenset({'PTS'}))
+
+    planned, details = context.plan(roster, 1)
+    assert details['events'] == [{'date': '2026-12-02', 'kind': 'activation_blocked',
+                                  'player': 'Returning shooter'}]
+    assert not planned[0]['available']
+    assert 'available_until' not in planned[1]
+    assert context.plan(roster, 2)[1]['events'][0]['dropped'] == 'Incumbent'
+
+
 def test_monte_carlo_and_week_projection_share_the_dated_roster(monkeypatch):
     teams = [SimpleNamespace(team_id=i, team_name=f'Team {i}', wins=0, losses=0, ties=0) for i in (1, 2)]
     snapshot = LeagueSnapshot(
