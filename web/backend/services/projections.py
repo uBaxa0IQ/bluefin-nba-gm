@@ -18,16 +18,18 @@ def projection_snapshot_options(mode):
     return {'include_unscored': True} if mode == INJURY_MODE else {}
 
 
-def projection_injury_context(metadata, snapshot, mode, *, punt_team_id=None, punt_categories=()):
+def projection_injury_context(metadata, snapshot, mode, *, punt_team_id=None, punt_categories=(), ir_return_drops=None):
     if mode == INJURY_MODE:
-        return InjuryContext.from_league(metadata, snapshot, punt_team_id=punt_team_id, punt_categories=punt_categories)
+        return InjuryContext.from_league(metadata, snapshot, punt_team_id=punt_team_id, punt_categories=punt_categories,
+                                         ir_return_drops=ir_return_drops)
     return None
 
 
-def injury_roster_today(metadata, period, *, punt_team_id=None, punt_categories=()):
+def injury_roster_today(metadata, period, *, punt_team_id=None, punt_categories=(), ir_return_drops=None):
     """Player rows for undated averages/Z views, after any same-day IR moves."""
     snapshot = build_league_snapshot(metadata, period, include_unscored=True)
-    context = InjuryContext.from_league(metadata, snapshot, punt_team_id=punt_team_id, punt_categories=punt_categories)
+    context = InjuryContext.from_league(metadata, snapshot, punt_team_id=punt_team_id, punt_categories=punt_categories,
+                                       ir_return_drops=ir_return_drops)
     return [
         {**row, 'team_id': team.team_id, 'team_name': team.team_name}
         for team in metadata.get_teams()

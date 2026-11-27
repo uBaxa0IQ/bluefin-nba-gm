@@ -28,16 +28,23 @@ router = APIRouter(prefix='/api/bluefin', tags=['bluefin'])
 _cache, _lock, _pool = {}, Lock(), ThreadPoolExecutor(max_workers=4)
 
 
-def season_result(meta, period, mode, count, custom_rosters, punts, punt_team_id=None):
+def parse_return_drops(raw):
+    try:
+        return {int(k): int(v) for k, v in json.loads(raw).items()} if raw else {}
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(422, 'Неверные правила возврата из IR')
+
+
+def season_result(meta, period, mode, count, custom_rosters, punts, punt_team_id=None, ir_return_drops=None):
     key = ('season', period, mode, count, analytics_version(meta, injury_aware=mode == INJURY_MODE, live=True),
-           tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts), punt_team_id)
+           tuple(sorted((int(k), tuple(v)) for k, v in custom_rosters.items())), tuple(punts), punt_team_id, tuple(sorted((ir_return_drops or {}).items())))
     with _lock:
         hit = _cache.get(key)
         if hit:
             return hit[1]
     result = project_regular_season(meta, period, simulation_mode=mode, top_n_players=count,
                                     custom_rosters=custom_rosters, punt_categories=punts, record_forecasts=False,
-                                    punt_team_id=punt_team_id)
+                                    punt_team_id=punt_team_id, ir_return_drops=ir_return_drops)
     with _lock:
         if len(_cache) >= 128:
             _cache.clear()
@@ -48,7 +55,7 @@ def season_result(meta, period, mode, count, custom_rosters, punts, punt_team_id
 @router.get('/season')
 def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_players: int = 13,
            custom_team_id: int | None = None, custom_team_players: str = '', punt_categories: str = '', custom_rosters: str = '',
-           meta=Depends(get_league_meta), punt_team_id: int | None = None):
+           meta=Depends(get_league_meta), punt_team_id: int | None = None, ir_return_drops: str = ""):
     custom = {custom_team_id: custom_team_players.split(',')} if custom_team_id and custom_team_players else {}
     if custom_rosters:
         try:
@@ -59,7 +66,7 @@ def season(period: str = DEFAULT_PERIOD, simulation_mode: str = 'top_n', top_n_p
         except (ValueError, TypeError):
             raise HTTPException(422, 'Неверный состав')
     return season_result(meta, period, simulation_mode, top_n_players, custom,
-                         tuple(filter(None, punt_categories.split(','))), punt_team_id)
+                         tuple(filter(None, punt_categories.split(','))), punt_team_id, parse_return_drops(ir_return_drops))
 
 
 @router.post('/trade')
@@ -78,7 +85,7 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
     current = current_matchup(meta, snapshot.current_matchup_period, snapshot.active_slots)
     before = project_regular_season(meta, body.period, simulation_mode=body.simulation_mode,
         top_n_players=body.top_n_players, snapshot_override=snapshot, custom_rosters=custom,
-        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current)
+        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current, ir_return_drops=body.ir_return_drops)
     moved = []
     for player in snapshot.players:
         destination = (body.their_team_id if player.fantasy_team_id == body.my_team_id and player.name in body.i_give else
@@ -94,7 +101,7 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
                 [p.as_projection_player() for p in after_snapshot.team_players(team_id)], body.top_n_players, body.punt_categories)
     after = project_regular_season(meta, body.period, simulation_mode=body.simulation_mode,
         top_n_players=body.top_n_players, snapshot_override=after_snapshot, custom_rosters=after_custom,
-        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current)
+        punt_categories=body.punt_categories, record_forecasts=False, punt_team_id=body.punt_team_id, current=current, ir_return_drops=body.ir_return_drops)
     before_places = {t['team_id']: t['projected_position'] for t in before['standings']}
     after_places = {t['team_id']: t['projected_position'] for t in after['standings']}
     result['simulation_ranks']['calendar'] = {key: {'before': before_places[team_id], 'after': after_places[team_id]}
@@ -106,7 +113,6 @@ def trade(body: TradeAnalysisRequest, http_request: FastAPIRequest, meta=Depends
     return result
 
 
-def espn(url, ttl=600):
 @router.post('/trade-scenario')
 def trade_scenario(body: MultiTeamTradeRequest, http_request: FastAPIRequest, meta=Depends(get_league_meta)):
     from routers.trades import analyze_multi_team_trade
@@ -122,7 +128,7 @@ def trade_scenario(body: MultiTeamTradeRequest, http_request: FastAPIRequest, me
     current = current_matchup(meta, before.current_matchup_period, before.active_slots)
     options = dict(simulation_mode=body.simulation_mode, top_n_players=body.top_n_players,
                    punt_categories=body.punt_categories, record_forecasts=False,
-                   punt_team_id=body.punt_team_id, current=current)
+                   punt_team_id=body.punt_team_id, current=current, ir_return_drops=body.ir_return_drops)
     places = {}
     for side, snapshot, rosters in [('before', before, custom), ('after', after, after_custom)]:
         standings = project_regular_season(meta, body.period, snapshot_override=snapshot,
@@ -134,6 +140,7 @@ def trade_scenario(body: MultiTeamTradeRequest, http_request: FastAPIRequest, me
     return result
 
 
+def espn(url, ttl=600):
     with _lock:
         cached = _cache.get(url)
         if cached and monotonic() - cached[0] < ttl:
@@ -164,12 +171,29 @@ def roster_meta(meta=Depends(get_league_meta)):
                         for team in meta.get_teams() for p in meta.get_team_roster(team.team_id)]}
 
 
+@router.get('/ir-returns/{team_id}')
+def ir_returns(team_id: int, period: str = DEFAULT_PERIOD, punt_categories: str = '',
+               ir_return_drops: str = '', meta=Depends(get_league_meta)):
+    snapshot = build_league_snapshot(meta, period, **projection_snapshot_options(INJURY_MODE))
+    context = projection_injury_context(
+        meta, snapshot, INJURY_MODE, punt_team_id=team_id,
+        punt_categories=tuple(filter(None, punt_categories.split(','))),
+        ir_return_drops=parse_return_drops(ir_return_drops),
+    )
+    _, timeline = context.plan(
+        [p.as_projection_player() for p in snapshot.team_players(team_id)], team_id, include_return_steps=True,
+    )
+    return {'returns': timeline['return_steps'],
+            'undated': [player for player in timeline['unavailable'] if player['in_ir']]}
+
+
 @router.get('/active-rosters')
 def active_rosters(period: str = DEFAULT_PERIOD, punt_categories: str = '',
-                   punt_team_id: int | None = None, meta=Depends(get_league_meta)):
+                   punt_team_id: int | None = None, meta=Depends(get_league_meta), ir_return_drops: str = ''):
     rosters = {t.team_id: [] for t in meta.get_teams()}
     for row in injury_roster_today(meta, period, punt_team_id=punt_team_id,
-                                  punt_categories=tuple(filter(None, punt_categories.split(',')))):
+                                  punt_categories=tuple(filter(None, punt_categories.split(','))),
+                                  ir_return_drops=parse_return_drops(ir_return_drops)):
         rosters[row['team_id']].append(row['name'])
     return {'rosters': rosters}
 
@@ -279,11 +303,11 @@ def team_form(team_id: int, simulation_mode: str = 'top_n', top_n_players: int =
 def calendar(team_id: int, week: int = Query(ge=1), period: str = DEFAULT_PERIOD,
              simulation_mode: str = 'top_n', top_n_players: int = 13,
              custom_team_players: str = '', punt_categories: str = '', meta=Depends(get_league_meta),
-             punt_team_id: int | None = None):
+             punt_team_id: int | None = None, ir_return_drops: str = ""):
     snapshot = build_league_snapshot(meta, period, **projection_snapshot_options(simulation_mode))
     punts = tuple(filter(None, punt_categories.split(',')))
     injury_context = projection_injury_context(meta, snapshot, simulation_mode,
-        punt_team_id=punt_team_id, punt_categories=punts)
+        punt_team_id=punt_team_id, punt_categories=punts, ir_return_drops=parse_return_drops(ir_return_drops))
     timeline = {}
     ps = select_projection_roster([p.as_projection_player() for p in snapshot.team_players(team_id)], simulation_mode,
                                   top_n_players, tuple(filter(None, custom_team_players.split(','))),

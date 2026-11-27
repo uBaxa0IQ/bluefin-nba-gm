@@ -47,16 +47,21 @@ def trade_matchup_probabilities(forecast, standings):
         for match in week['matchups']:
             if match['official']:
                 a, b = match['team1_id'], match['team2_id']
-                by_id[a]['regular_matchups'].append(dict(week=week['week'], opponent_id=b, p_win=match['p_win']))
-                by_id[b]['regular_matchups'].append(dict(week=week['week'], opponent_id=a, p_win=match['p_loss']))
+                for team, opponent, outcome in ((a, b, 'p_win'), (b, a, 'p_loss')):
+                    by_id[team]['regular_matchups'].append(dict(
+                        week=week['week'], opponent_id=opponent, p_win=match[outcome],
+                        category_probabilities={cat: odds[outcome] for cat, odds in match['categories'].items()},
+                    ))
 
     for round_ in postseason['rounds'] if postseason else ():
         rounds = {team_id: dict(week=round_['week'], start=round_['start'], end=round_['end'], opponents=[])
                   for team_id in by_id}
         for match in round_['matchups']:
             if match['bracket'] == 'championship':
-                rounds[match['team_id']]['opponents'].append(
-                    {key: match[key] for key in ('opponent_id', 'p_meet', 'p_win')})
+                rounds[match['team_id']]['opponents'].append(dict(
+                    opponent_id=match['opponent_id'], p_meet=match['p_meet'], p_win=match['p_win'],
+                    category_probabilities={cat: odds['p_win'] for cat, odds in match['categories'].items()},
+                ))
         for team_id, round_data in rounds.items():
             by_id[team_id]['playoff_matchups'].append(round_data)
     return standings
@@ -111,6 +116,8 @@ def run_trade_probability(metadata, params, progress):
     if 'punt_team_id' in params:
         common['punt_team_id'] = params['punt_team_id']
     live = current_matchup(metadata, before_snapshot.current_matchup_period, before_snapshot.active_slots)
+    if params.get('ir_return_drops'):
+        common['ir_return_drops'] = {int(k): v for k, v in params['ir_return_drops'].items()}
     before = prepare_season(metadata, **common, custom_rosters=params['custom_rosters'],
                             snapshot=before_snapshot, live_matchup=live, include_postseason=True)
     after = prepare_season(metadata, **common, custom_rosters=after_custom,
@@ -152,4 +159,4 @@ def run_trade_probability(metadata, params, progress):
 
 
 trade_probability_jobs = ProbabilityJobs(ROOT / '.cache' / 'trade_probability', runner=run_trade_probability,
-                                       cache_revision='trade-matchups-v1')
+                                       cache_revision='trade-matchups-v2')

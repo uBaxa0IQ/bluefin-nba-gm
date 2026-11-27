@@ -22,6 +22,7 @@ class ProbabilityRequest(BaseModel):
     custom_rosters: dict[int, list[str]] = Field(default_factory=dict)
     punt_categories: list[str] = Field(default_factory=list, max_length=20)
     punt_team_id: int | None = None
+    ir_return_drops: dict[int, int] = Field(default_factory=dict)
     trials: int = Field(default=10000, ge=1000, le=30000)
     seed: int = Field(default=20261116, ge=0, le=2**32 - 1)
 

@@ -62,6 +62,48 @@ async function setup(page, { failNext = false, extraPlayers = [], extraTeams = [
     return calls;
 }
 
+test('IR return selections persist and update later drop candidates', async ({ page }) => {
+    await page.addInitScript(() => {
+        const key = 'bluefin-live-v1:123:2027';
+        if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ rosterMode: 'injury_aware' }));
+    });
+    const mara = { player_id: 31, name: 'Mara', fantasy_team_id: 1, is_ir: true };
+    const chet = { player_id: 32, name: 'Chet', fantasy_team_id: 1, is_ir: true };
+    const donte = { player_id: 33, name: 'Donte', fantasy_team_id: 1, is_ir: true };
+    const goodwin = { player_id: 34, name: 'Goodwin', fantasy_team_id: 1 };
+    await setup(page, { extraPlayers: [mara, chet, donte, goodwin] });
+    await page.route('**/api/bluefin/ir-returns/1?*', route => {
+        const rules = JSON.parse(new URL(route.request().url()).searchParams.get('ir_return_drops') ?? '{}');
+        const step = (player, day, candidates) => ({
+            ...player, date: `2027-01-0${day}`, candidates, can_drop_self: true, automatic_drop: 'Player A',
+        });
+        return route.fulfill({ json: { returns: [
+            step(mara, 1, [goodwin]), step(chet, 2, rules[31] ? [mara] : []), step(donte, 3, []),
+        ], undated: [] } });
+    });
+    const open = async () => {
+        await page.locator('nav [data-page="team"]').click();
+        await page.getByRole('button', { name: 'Состав', exact: true }).click();
+        await page.keyboard.press('Shift+I');
+    };
+    await open();
+    const dialog = page.getByRole('dialog', { name: 'Возвраты из IR' });
+    const select = id => dialog.locator(`[data-ir-return="${id}"]`);
+    await expect(select(31)).toHaveValue('');
+    await select(31).selectOption('34');
+    await select(32).selectOption('31');
+    await select(33).selectOption('33');
+    await page.reload();
+    await open();
+    await expect(select(31)).toHaveValue('34');
+    await expect(select(32)).toHaveValue('31');
+    await expect(select(33)).toHaveValue('33');
+    await select(32).selectOption('');
+    await expect(select(32)).toHaveValue('');
+    const rules = await page.evaluate(() => JSON.parse(localStorage.getItem('bluefin-live-v1:123:2027')).irReturnDrops);
+    expect(rules).toEqual({ 31: 34, 33: 33 });
+});
+
 test('shift-click adds a trade leg and keeps one full-width comparison', async ({ page }) => {
     await setup(page, {
         extraTeams: [{ team_id: 3, team_name: 'Team C' }],
@@ -98,6 +140,8 @@ test('shift-click adds a trade leg and keeps one full-width comparison', async (
     await expect(page.locator('.bf-trade-roster-control button')).toHaveCount(1);
     await page.locator('[data-trade="give"][value="Player A"]').check();
     await page.locator('[data-trade="receive"][value="Player B"]').check();
+    const saveTrade = page.locator('[data-action="save-trade"]');
+    await saveTrade.click();
     const results = page.locator('.bf-trade-results');
     const layout = () => results.evaluate(el => {
         return [
@@ -122,8 +166,24 @@ test('shift-click adds a trade leg and keeps one full-width comparison', async (
     await expect(page.locator('.bf-trade-builder')).toHaveCount(1);
     await expect(page.locator('[data-trade="give"][value="Player A"]')).toHaveCount(0);
     await page.locator('[data-trade="give"][value="Player D"]').check();
+    await expect(saveTrade).toBeDisabled();
     await page.locator('[data-trade="receive"][value="Player C"]').check();
     expect(await center()).toBe(originalCenter);
+    await saveTrade.click();
+    await expect(saveTrade).toBeDisabled();
+    await page.reload();
+    await page.locator('nav [data-page="trades"]').click();
+    await page.locator('[data-action="saved-trades"]').click();
+    const saved = page.locator('[data-action="saved-trade-load"]');
+    await expect(saved).toHaveCount(2);
+    const savedScenario = saved.filter({ hasText: 'Player D' });
+    await expect(savedScenario.locator('.bf-saved-trade-leg')).toHaveCount(2);
+    await savedScenario.click();
+    await expect(page.locator('.bf-trade-leg')).toContainText('Player A ↔ Player B');
+    await expect(page.locator('[data-trade="give"][value="Player D"]')).toBeChecked();
+    await expect(page.locator('[data-trade="receive"][value="Player C"]')).toBeChecked();
+    await expect(saveTrade).toBeDisabled();
+    expect(evaluations).toBe(0);
     await evaluate.click();
     await expect(page.locator('.bf-trade-prob-grid polyline')).toHaveCount(2);
     await expect(results.locator('.bf-trade-outcomes h2').first()).toHaveText('Team A');
@@ -477,12 +537,15 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     await page.route('**/api/bluefin/trade', route => route.fulfill({ json: { my_team: team, their_team: team } }));
     const round = { week: 17, start: '2027-02-08', end: '2027-02-14' };
     const before = result.standings.map(t => ({ ...t, p_final: .2, p_title: .1,
-        regular_matchups: [{ week: 5, opponent_id: 3 - t.team_id, p_win: t.team_id === 1 ? .65 : .3 }],
-        playoff_matchups: [{ ...round, opponents: [{ opponent_id: 3 - t.team_id, p_meet: .15, p_win: .5 }] }],
+        regular_matchups: [{ week: 5, opponent_id: 3 - t.team_id, p_win: t.team_id === 1 ? .65 : .3,
+            category_probabilities: { PTS: t.team_id === 1 ? .61 : .39 } }],
+        playoff_matchups: [{ ...round, opponents: [{ opponent_id: 3 - t.team_id, p_meet: .15, p_win: .5,
+            category_probabilities: { PTS: .48 } }] }],
         category_probabilities: { PTS: t.team_id === 1 ? .6 : .4, REB: t.team_id === 1 ? .8 : .2 } }));
     const after = before.map(t => ({ ...t, expected_rank: t.expected_rank + .1, p_playoffs: .5,
         p_final: t.team_id === 1 ? .25 : .17, p_title: t.team_id === 1 ? .12 : .09,
-        regular_matchups: [{ ...t.regular_matchups[0], p_win: t.team_id === 1 ? .72 : .23 }],
+        regular_matchups: [{ ...t.regular_matchups[0], p_win: t.team_id === 1 ? .72 : .23,
+            category_probabilities: { PTS: t.team_id === 1 ? .7 : .3 } }],
         playoff_matchups: [{ ...round, opponents: t.team_id === 1 ? [] : [{ opponent_id: 1, p_meet: .15, p_win: .45 }] }],
         rank_probabilities: { 1: .5, 2: .5 }, category_probabilities: { PTS: t.team_id === 1 ? .72 : .3, REB: t.team_id === 1 ? .75 : .35 } }));
     let release;
@@ -520,10 +583,18 @@ test('trade displays baseline first, then paired rank curves and clears stale re
     const matchups = page.getByRole('dialog', { name: 'Team A' });
     await expect(matchups.getByRole('row', { name: /Team B/ })).toContainText('65.0% → 72.0%');
     await expect(matchups.getByRole('row', { name: /Team B/ })).toContainText('+7.0 п.п.');
+    await matchups.getByRole('cell', { name: '65.0% → 72.0%', exact: true }).click();
+    const details = matchups.locator('.bf-trade-category-table');
+    await expect(details.getByRole('row', { name: /PTS/ })).toContainText('61.0% → 70.0%');
+    await expect(details.getByRole('row', { name: /PTS/ })).toContainText('+9.0 п.п.');
+    await matchups.getByRole('button', { name: 'Team B' }).press('Enter');
+    await expect(details).toHaveCount(0);
     await matchups.getByRole('button', { name: 'Плей-офф', exact: true }).click();
     const path = matchups.getByRole('row', { name: /Team B/ });
     await expect(path).toContainText('15.0% → 0.0%');
     await expect(path).toContainText('50.0% → —');
+    await path.getByRole('button', { name: 'Team B' }).click();
+    await expect(details.getByRole('row', { name: /PTS/ })).toContainText('48.0% → —');
     await matchups.getByRole('button', { name: 'Закрыть' }).click();
     await expect(page.locator('.bf-trade-table tbody tr').first().locator('td')).toHaveText(['PTS', '60.0%', '72.0%', '+12.0 п.п.', '40.0%', '30.0%', '-10.0 п.п.']);
     await page.locator('[data-set="tradeValues"][data-value="raw"]').click();

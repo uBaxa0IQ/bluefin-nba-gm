@@ -19,7 +19,7 @@ const sorted=ps=>[...ps].sort((a,b)=>z(b)-z(a));
 const tname=team=>teams.find(t=>t.team_id===+team)?.team_name??'Команда';
 const findPlayer=pid=>players.find(p=>id(p)===String(pid))??knownPlayers.get(String(pid));
 const tradeStateKeys=['tradeMyTeam','tradeTeam','give','receive','rosterOpen','giveSearch','receiveSearch','tradeValues','tradeSummaryOpen'];
-function save(){if(settings)localStorage.setItem(key(),JSON.stringify(Object.fromEntries(['mainTeam','period','rosterMode','picks','punts','puntsEnabled','columns','comparePlayers',...tradeStateKeys,...probabilityStateKeys].map(k=>[k,s[k]]))));localStorage.setItem('bluefin-ui',JSON.stringify({lang:s.lang,coloring:s.coloring,theme:s.theme}));}
+function save(){if(settings)localStorage.setItem(key(),JSON.stringify(Object.fromEntries(['irReturnDrops','mainTeam','period','rosterMode','picks','punts','puntsEnabled','columns','comparePlayers',...tradeStateKeys,...probabilityStateKeys].map(k=>[k,s[k]]))));localStorage.setItem('bluefin-ui',JSON.stringify({lang:s.lang,coloring:s.coloring,theme:s.theme}));}
 async function request(path,options={}){const token=sessionStorage.getItem('nba-api-token');const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(!r.ok){let m=`Ошибка ${r.status}`;try{const d=await r.json();if(typeof d.detail==='string')m=d.detail;}catch{}const error=Error(m);error.status=r.status;throw error;}const d=await r.json();if(d?.error)throw Error(d.error);return d;}
 function resource(path,ttl=Infinity){const hit=cache.get(path);if(hit&&!hit.pending&&Date.now()-(hit.created??0)>ttl)cache.delete(path);if(!cache.has(path)){const entry={pending:true,created:Date.now()};cache.set(path,entry);request(path).then(data=>{entry.data=data;entry.pending=false;entry.created=Date.now();}).catch(e=>{entry.error=e.message;entry.pending=false;}).finally(render);}return cache.get(path);}
 const blank=m=>`<div class="pe-blank">${E(m)}</div>`;
@@ -37,7 +37,43 @@ const rosterForAverages=team=>injuryMode()?roster(team).filter(p=>!p.is_ir):sele
 const total=(team,c)=>sum(rosterForAverages(team),p=>p.z_scores?.[c]);
 function raw(team,c){const ss=k=>sum(rosterForAverages(team),p=>p.stats?.[k]);const ratio={'FG%':['FGM','FGA'],'FT%':['FTM','FTA'],'3PT%':['3PM','3PA'],'A/TO':['AST','TO']}[c];return ratio?(ss(ratio[1])?ss(ratio[0])/ss(ratio[1]):c==='A/TO'?ss('AST'):0):ss(c);}
 function categoryRank(team,c){const v=raw(team,c),reverse=settings.season.reverse_categories.includes(c);return 1+teams.filter(t=>reverse?raw(t.team_id,c)<v:raw(t.team_id,c)>v).length;}
-function params(team=myTeam){const p=new URLSearchParams({period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts().join(',')});if(injuryMode())p.set('punt_team_id',myTeam);if(s.rosterMode==='top_n')p.set('custom_team_players',selected(team).map(p=>p.name).join(','));return p;}
+function irReturnDrops(){
+ if(!injuryMode())return {};
+ const ids=new Set(roster(myTeam).map(id));
+ return Object.fromEntries(Object.entries(s.irReturnDrops??{}).filter(([incoming,outgoing])=>
+  ids.has(incoming)&&ids.has(String(outgoing))));
+}
+function irReturnDialog(){
+ const path='/api/bluefin/ir-returns/'+myTeam+'?'+params();
+ const entry=resource(path,60000),scope=`${myTeam}:${s.period}`;
+ if(entry.data)s.irReturnPreview={scope,data:entry.data};
+ const data=entry.data??(s.irReturnPreview?.scope===scope?s.irReturnPreview.data:null);
+ if(entry.error||!data)return response(entry,()=> '');
+ const drops=irReturnDrops();
+ const rows=data.returns.map(step=>{
+  const incoming=String(step.player_id),selected=String(drops[incoming]??'');
+  const outcome=step.automatic_drop??(step.automatic_blocked?tr('остаётся в IR','stays on IR'):tr('есть свободное место','open slot'));
+  const options=[['',`Z-score · ${outcome}`]];
+  if(step.can_drop_self)options.push([incoming,tr('Дропнуть возвращающегося','Drop returning player')]);
+  for(const player of step.candidates)options.push([String(player.player_id),player.name]);
+  if(selected&&!options.some(([value])=>value===selected)){
+   options.push([selected,`${findPlayer(selected)?.name??selected} · ${tr('недоступен','unavailable')}`]);
+  }
+  return `<tr><th scope="row">${E(step.name)}<small class="pe-muted">${E(date(step.date))}</small></th><td>
+   <select class="pe-select" data-ir-return="${E(incoming)}" aria-label="${E(tr('Дроп при возвращении','Drop when returning')+' · '+step.name)}" ${entry.pending?'disabled':''}>
+    ${options.map(([value,label])=>`<option value="${E(value)}" ${value===selected?'selected':''}>${E(label)}</option>`).join('')}
+   </select></td></tr>`;
+ });
+ for(const player of data.undated){
+  const label=player.out_for_season?tr('До конца сезона','Out for season'):tr('Дата неизвестна','Return date unknown');
+  rows.push(`<tr><th scope="row">${E(player.name)}<small class="pe-muted">${E(label)}</small></th><td>—</td></tr>`);
+ }
+ if(!rows.length)return blank(tr('В IR никого нет','No players on IR'));
+ return `<div class="pe-table-wrap" aria-busy="${Boolean(entry.pending)}"><table class="bf-ir-returns"><thead><tr>
+  <th scope="col">${tr('Возврат из IR','IR return')}</th><th scope="col">${tr('Дроп','Drop')}</th>
+  </tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+function params(team=myTeam){const p=new URLSearchParams({period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts().join(',')});if(injuryMode()){p.set('punt_team_id',myTeam);const drops=irReturnDrops();if(Object.keys(drops).length)p.set('ir_return_drops',JSON.stringify(drops));}if(s.rosterMode==='top_n')p.set('custom_team_players',selected(team).map(p=>p.name).join(','));return p;}
 
 
 const rankTone=n=>tone((teams.length+1-2*n)/teams.length*3);
@@ -111,7 +147,7 @@ function categoryTable(team){return `<div class="pe-table-wrap"><table class="bf
 
 function teamPage(){const team=s.team,ps=selected(team),fullRoster=roster(team);
  const averagesRoster=rosterForAverages(team),strengthZ=sum(averagesRoster,z),d=resource('/api/dashboard/'+team+'?'+params(team)).data;const head=`<div class="pe-head"><div><h1>${E(tname(team))}</h1><div class="pe-metrics"><span class="bf-official-position"><strong>${d?.league_position?'#'+d.league_position:'—'}</strong>${tr('В лиге','League rank')}</span><span><strong>${ps.length} / ${fullRoster.length}</strong>${tr('Игроков','Players')}</span><span><strong style="${numberTone(strengthZ)}">${fmt(strengthZ)}</strong>Z-score</span>${forecastSummary(team)}</div></div></div>`;const nav=tabs([['overview',tr('Обзор','Overview')],['roster',tr('Состав','Roster')],['categories',tr('Категории','Categories')],...(probabilityEnabled()?[['contribution',tr('Вклад состава','Roster contribution')]]:[]),['calendar',tr('Календарь','Calendar')],['history',tr('История','History')]],'tab');
- if(s.tab==='roster')return head+nav+`<div class="pe-controls pe-row">${valuesControls()}${button(tr('Выбрать состав','Select roster'),'settings')}</div>`+ptable(fullRoster);
+ if(s.tab==='roster')return head+nav+`<div class="pe-controls pe-row">${valuesControls()}${injuryMode()&&team===myTeam?button(tr('Возвраты из IR','IR returns'),'ir-returns',false,false,'title="Shift + I" aria-keyshortcuts="Shift+I"'):''}</div>`+ptable(fullRoster);
  if(s.tab==='categories')return head+nav+teamCategories(team);
  if(s.tab==='calendar')return head+nav+calendarPage(team);
  if(s.tab==='history')return head+nav+historyPage(team);
@@ -154,20 +190,41 @@ function simulationPage(){
  return `<div class="pe-head"><h1>Симуляции</h1></div>`+simulationTabs()+(s.simMode==='matchup'?`<div class="pe-controls pe-row"><select class="pe-select" data-control="simWeek" aria-label="Неделя симуляции">${(weeks.simulation_weeks??weeks.weeks).map(w=>`<option value="${w}" ${+s.simWeek===w?'selected':''}>Неделя ${w}</option>`).join('')}</select><select class="pe-select" data-control="weeksCount" aria-label="Усреднить недели">${Array.from({length:+s.simWeek},(_,i)=>i+1).map(n=>`<option value="${n}" ${+s.weeksCount===n?'selected':''}>${n===1?'Одна неделя':'Последние '+n+' недели'}</option>`).join('')}</select></div>`:'')+(s.simMode==='matchup'&&weeks.latest_stats_week===null?blank(tr('Матчи ещё не начались','Games have not started yet')):response(resource(simulationPath()),d=>standingsTable(d,'simulation')));}
 function tradePlayerChips(key){return s[key].map(name=>{const p=players.find(p=>p.name===name);return `<span class="bf-chip">${p?link(name,'player',id(p)):E(name)}<button data-remove="${key}" data-name="${E(name)}" aria-label="Убрать ${E(name)}">×</button></span>`;}).join('');}
 const savedTradesKey=()=>`bluefin-saved-trades:${settings.season.league_id}:${settings.season.year}`;
+const savedTradeLegs=trade=>trade.legs??[trade.teams];
 function readSavedTrades(){
- try{const saved=JSON.parse(localStorage.getItem(savedTradesKey())??'[]');return Array.isArray(saved)?saved.filter(t=>typeof t.id==='string'&&Array.isArray(t.teams)&&t.teams.length===2&&t.teams.every(team=>Number.isInteger(team.id)&&Array.isArray(team.players)&&team.players.length&&team.players.every(p=>typeof p.player_id==='string'&&typeof p.name==='string'))):[];}catch{return [];}
+ try{
+  const saved=JSON.parse(localStorage.getItem(savedTradesKey())??'[]');
+  if(!Array.isArray(saved))return [];
+  return saved.filter(trade=>{
+   if(typeof trade?.id!=='string')return false;
+   const legs=savedTradeLegs(trade);
+   return Array.isArray(legs)&&legs.length>0&&legs.every(leg=>Array.isArray(leg)&&leg.length===2&&leg.every(team=>
+    Number.isInteger(team?.id)&&Array.isArray(team.players)&&team.players.length>0&&
+    team.players.every(p=>typeof p?.player_id==='string'&&typeof p.name==='string')));
+  });
+ }catch{return [];}
 }
-function savedTradeSignature(trade){return JSON.stringify(trade.teams.map(t=>[t.id,t.players.map(p=>p.player_id).sort()]).sort((a,b)=>a[0]-b[0]));}
+function savedTradeSignature(trade){
+ return JSON.stringify(savedTradeLegs(trade).map(leg=>
+  JSON.stringify(leg.map(t=>[t.id,t.players.map(p=>p.player_id).sort()]).sort((a,b)=>a[0]-b[0]))).sort());
+}
 function currentSavedTrade(){
- const sides=[[s.tradeMyTeam,s.give],[s.tradeTeam,s.receive]];
- if(s.tradeMyTeam===s.tradeTeam||sides.some(([team,names])=>!teams.some(t=>t.team_id===team)||!names.length))return null;
- const proposal={teams:sides.map(([team,names])=>({id:team,name:tname(team),players:names.map(name=>{const p=roster(team).find(p=>p.name===name);return p?{player_id:id(p),name:p.name}:null;})}))};
- return proposal.teams.some(t=>t.players.includes(null))?null:proposal;
+ const legs=tradeProposalLegs();
+ if(!tradeScenario(legs))return null;
+ const saved=legs.map(({my,other,give,receive})=>[[my,give],[other,receive]].map(([team,names])=>({
+  id:team,name:tname(team),players:names.map(name=>({player_id:id(roster(team).find(p=>p.name===name)),name})),
+ })));
+ return saved.length===1?{teams:saved[0]}:{legs:saved};
 }
 function resolveSavedTrade(trade){
- const sides=trade.teams.map(team=>({team:team.id,players:team.players.map(p=>roster(team.id).find(current=>id(current)===p.player_id))}));
- return sides.every(t=>teams.some(team=>team.team_id===t.team)&&t.players.every(Boolean))?sides:null;
- if(s.tradeLegs?.length)return null;
+ const legs=[];
+ for(const [left,right] of savedTradeLegs(trade)){
+  const names=team=>team.players.map(p=>roster(team.id).find(current=>id(current)===p.player_id)?.name);
+  const give=names(left),receive=names(right);
+  if(!give.every(Boolean)||!receive.every(Boolean))return null;
+  legs.push({my:left.id,other:right.id,give,receive});
+ }
+ return tradeScenario(legs)?legs:null;
 }
 function writeSavedTrades(trades){
  try{localStorage.setItem(savedTradesKey(),JSON.stringify(trades));s.savedTradesError='';return true;}
@@ -180,37 +237,30 @@ function saveCurrentTrade(){
  render();
 }
 function loadSavedTrade(tradeId){
- const trade=readSavedTrades().find(t=>t.id===tradeId),sides=trade&&resolveSavedTrade(trade);
- if(!sides)return;
- s.tradeMyTeam=sides[0].team;s.tradeTeam=sides[1].team;
- s.give=sides[0].players.map(p=>p.name);s.receive=sides[1].players.map(p=>p.name);
- s.giveSearch='';s.receiveSearch='';s.rosterScroll={give:0,receive:0};
+ const trade=readSavedTrades().find(t=>t.id===tradeId),legs=trade&&resolveSavedTrade(trade);
+ if(!legs)return;
+ s.tradeLegs=legs.slice(0,-1);
+ openTradeLeg(legs.at(-1));
  s.overlay=null;s.savedTradesError='';invalidate();save();render();
 }
 function savedTradesDialog(){
  const saved=readSavedTrades();
  return `${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}${saved.length?`<div class="bf-saved-trades">${saved.map(t=>{
- s.tradeLegs=[];
   const valid=!!resolveSavedTrade(t);
-  return `<div class="bf-saved-trade"><button class="bf-saved-trade-load" data-action="saved-trade-load" data-id="${E(t.id)}" ${valid?'':'disabled'}>${t.teams.map(team=>`<span><small>${E(teams.find(current=>current.team_id===team.id)?.team_name??team.name)}</small><span>${team.players.map(p=>E(roster(team.id).find(current=>id(current)===p.player_id)?.name??p.name)).join(', ')}</span></span>`).join('<span class="bf-saved-trade-arrow">↔</span>')}${valid?'':`<small class="bf-saved-trade-stale">${tr('Состав изменился','Roster changed')}</small>`}</button><button class="pe-link bf-saved-trade-delete" data-action="saved-trade-delete" data-id="${E(t.id)}" aria-label="${E(tr('Удалить обмен','Delete trade'))}">×</button></div>`;
+  const legs=savedTradeLegs(t).map(leg=>`<span class="bf-saved-trade-leg">${leg.map(team=>`<span><small>${E(teams.find(current=>current.team_id===team.id)?.team_name??team.name)}</small><span>${team.players.map(p=>E(roster(team.id).find(current=>id(current)===p.player_id)?.name??p.name)).join(', ')}</span></span>`).join('<span class="bf-saved-trade-arrow">↔</span>')}</span>`).join('');
+  return `<div class="bf-saved-trade"><button class="bf-saved-trade-load" data-action="saved-trade-load" data-id="${E(t.id)}" ${valid?'':'disabled'}>${legs}${valid?'':`<small class="bf-saved-trade-stale">${tr('Состав изменился','Roster changed')}</small>`}</button><button class="pe-link bf-saved-trade-delete" data-action="saved-trade-delete" data-id="${E(t.id)}" aria-label="${E(tr('Удалить обмен','Delete trade'))}">×</button></div>`;
  }).join('')}</div>`:blank(tr('Нет сохранённых обменов','No saved trades'))}`;
 }
-function tradePage(){
- const side=(team,key)=>{
-  const query=s[key+'Search']??'',ps=sorted(roster(team)).filter(p=>!included.has(p.name)&&p.name.toLowerCase().includes(query.toLowerCase()));
-  return `<section><div class="pe-section-head"><select class="pe-select" data-control="${key==='give'?'tradeMyTeam':'tradeTeam'}" aria-label="${tr('Команда','Team')} · ${tr(key==='give'?'Отдаём':'Получаем',key==='give'?'Sending':'Receiving')}">${teamOptions(team)}</select><span class="pe-muted">${tr('Отдаёт','Sends')}</span></div>
-   <div class="bf-chips">${tradePlayerChips(key)||`<span class="pe-muted">${tr('Игроки не выбраны','No players selected')}</span>`}</div>
-
-   ${s.rosterOpen[key]?`<div class="bf-inline-roster" id="trade-roster-${key}"><input class="pe-search" placeholder="${tr('Найти игрока','Find player')}" aria-label="${tr('Поиск игрока','Player search')} · ${E(tname(team))}" data-input="${key}Search" value="${E(query)}"><div class="bf-roster-list" data-roster-scroll="${key}">${ps.map(p=>`<label class="bf-roster-option"><input type="checkbox" data-trade="${key}" value="${E(p.name)}" ${s[key].includes(p.name)?'checked':''}><span>${E(p.name)}<small>${E(p.position)} · ${E(p.nba_team)}</small></span><span style="${numberTone(z(p))}">${fmt(z(p))}</span></label>`).join('')}${ps.length?'':blank(tr('Игроков нет','No players'))}</div></div>`:''}</section>`;
- };
 const currentTradeLeg=()=>({my:s.tradeMyTeam,other:s.tradeTeam,give:[...s.give],receive:[...s.receive]});
 function openTradeLeg(leg){
  s.tradeMyTeam=leg.my;s.tradeTeam=leg.other;s.give=[...leg.give];s.receive=[...leg.receive];
  s.giveSearch='';s.receiveSearch='';s.rosterScroll={give:0,receive:0};
 }
-function tradeScenario(){
- const legs=[...s.tradeLegs];
- if(s.give.length||s.receive.length)legs.push(currentTradeLeg());
+function tradeProposalLegs(){
+ return s.give.length||s.receive.length?[...s.tradeLegs,currentTradeLeg()]:s.tradeLegs;
+}
+function tradeScenario(legs=tradeProposalLegs()){
+ if(!legs.length)return null;
  const moves=new Map(),used=new Set();
  for(const {my,other,give,receive} of legs){
   if(!give.length||!receive.length||my===other)return null;
@@ -225,19 +275,27 @@ function tradeScenario(){
  }
  return [...moves.values()];
 }
- const anyOpen=s.rosterOpen.give||s.rosterOpen.receive;
+function tradePage(){
  const included=new Set(s.tradeLegs.flatMap(leg=>[...leg.give,...leg.receive]));
- const proposal=currentSavedTrade(),saved=readSavedTrades(),alreadySaved=proposal&&saved.some(t=>savedTradeSignature(t)===savedTradeSignature(proposal));
- return `<div class="pe-head"><h1>${tr('Обмены','Trades')}</h1><div class="pe-row bf-saved-trade-controls">${scenario?'':`<button class="pe-link" data-action="save-trade" ${!proposal||alreadySaved?'disabled':''}>${alreadySaved?tr('Сохранено','Saved'):tr('Сохранить','Save')}</button>`}<button class="pe-link" data-action="saved-trades">${tr('Сохранённые','Saved trades')}${saved.length?` · ${saved.length}`:''}</button></div></div>${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}
+ const side=(team,key)=>{
+  const query=s[key+'Search']??'',ps=sorted(roster(team)).filter(p=>!included.has(p.name)&&p.name.toLowerCase().includes(query.toLowerCase()));
+  return `<section><div class="pe-section-head"><select class="pe-select" data-control="${key==='give'?'tradeMyTeam':'tradeTeam'}" aria-label="${tr('Команда','Team')} · ${tr(key==='give'?'Отдаём':'Получаем',key==='give'?'Sending':'Receiving')}">${teamOptions(team)}</select><span class="pe-muted">${tr('Отдаёт','Sends')}</span></div>
+   <div class="bf-chips">${tradePlayerChips(key)||`<span class="pe-muted">${tr('Игроки не выбраны','No players selected')}</span>`}</div>
+
+   ${s.rosterOpen[key]?`<div class="bf-inline-roster" id="trade-roster-${key}"><input class="pe-search" placeholder="${tr('Найти игрока','Find player')}" aria-label="${tr('Поиск игрока','Player search')} · ${E(tname(team))}" data-input="${key}Search" value="${E(query)}"><div class="bf-roster-list" data-roster-scroll="${key}">${ps.map(p=>`<label class="bf-roster-option"><input type="checkbox" data-trade="${key}" value="${E(p.name)}" ${s[key].includes(p.name)?'checked':''}><span>${E(p.name)}<small>${E(p.position)} · ${E(p.nba_team)}</small></span><span style="${numberTone(z(p))}">${fmt(z(p))}</span></label>`).join('')}${ps.length?'':blank(tr('Игроков нет','No players'))}</div></div>`:''}</section>`;
+ };
+ const anyOpen=s.rosterOpen.give||s.rosterOpen.receive;
+ const scenario=s.tradeLegs.length>0,proposal=currentSavedTrade();
+ const legs=s.tradeLegs.map(({give,receive},i)=>`<div class="pe-row bf-trade-leg"><button class="pe-link" data-action="trade-edit-leg" data-index="${i}">${E(give.join(', '))} ↔ ${E(receive.join(', '))}</button><button class="pe-link" data-action="trade-remove-leg" data-index="${i}" aria-label="${tr('Убрать обмен','Remove trade')}">×</button></div>`).join('');
+ const saved=readSavedTrades(),alreadySaved=proposal&&saved.some(t=>savedTradeSignature(t)===savedTradeSignature(proposal));
+ return `<div class="pe-head"><h1>${tr('Обмены','Trades')}</h1><div class="pe-row bf-saved-trade-controls"><button class="pe-link" data-action="save-trade" ${!proposal||alreadySaved?'disabled':''}>${alreadySaved?tr('Сохранено','Saved'):tr('Сохранить','Save')}</button><button class="pe-link" data-action="saved-trades">${tr('Сохранённые','Saved trades')}${saved.length?` · ${saved.length}`:''}</button></div></div>${s.savedTradesError?`<div class="pe-error" role="alert">${E(s.savedTradesError)}</div>`:''}
   ${legs}<div class="bf-trade-roster-control"><button class="pe-link" data-action="toggle-rosters" aria-expanded="${Boolean(anyOpen)}">${anyOpen?tr('Свернуть составы','Collapse rosters'):tr('Раскрыть составы','Show rosters')}</button></div>
   <div class="bf-trade-builder">${side(s.tradeMyTeam,'give')}${side(s.tradeTeam,'receive')}</div>
-  <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!valid,s.give.length&&s.receive.length?`title="${tr('Добавить ещё обмен · Shift + клик','Add another trade · Shift + click')}"`:'')}</div>
+  <div class="bf-trade-run">${button(s.tradeBusy?tr('Анализируем…','Analyzing…'):tr('Оценить обмен','Evaluate trade'),'trade',true,s.tradeBusy||!proposal,s.give.length&&s.receive.length?`title="${tr('Добавить ещё обмен · Shift + клик','Add another trade · Shift + click')}"`:'')}</div>
   ${s.tradeError?`<div class="pe-error" role="alert">${E(s.tradeError)}</div>`:''}
   ${s.trade?`<div class="bf-trade-results${scenario?' bf-trade-results-single':''}"><div class="pe-controls pe-row bf-trade-result-controls">${segment([['raw',tr('Средние','Averages')],['z','Z-score'],['ranks',tr('Позиции по средним','Ranks by averages')],...(probabilityEnabled()?[['probability',tr('Вероятности','Probabilities')]]:[])],'tradeValues')}</div>${tradeResult(s.trade)}${tradeProbabilityPanel()}</div>`:''}`;
 }
 function tradeRank(rank){
- const scenario=s.tradeLegs.length>0, valid=scenario?Boolean(tradeScenario()):Boolean(currentSavedTrade());
- const legs=s.tradeLegs.map(({give,receive},i)=>`<div class="pe-row bf-trade-leg"><button class="pe-link" data-action="trade-edit-leg" data-index="${i}">${E(give.join(', '))} ↔ ${E(receive.join(', '))}</button><button class="pe-link" data-action="trade-remove-leg" data-index="${i}" aria-label="${tr('Убрать обмен','Remove trade')}">×</button></div>`).join('');
  if(!Number.isInteger(rank)||rank<1)return '';
  const label=tr(`Место по средним: ${rank} из ${teams.length}`,`Rank by averages: ${rank} of ${teams.length}`);
  return `<span class="bf-trade-rank" aria-label="${E(label)}" title="${E(label)}">${rank}</span>`;

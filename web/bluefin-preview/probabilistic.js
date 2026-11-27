@@ -8,7 +8,7 @@ const probabilityJobKey=()=>`bluefin-probabilistic-job:${settings.season.league_
 const probabilityEnabled=()=>settings?.features?.probabilistic===true;
 
 const tradeProbability={version:0,key:null,job:null,error:''};
-const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.tradeLegs,s.period,s.rosterMode,s.picks,punts(),injuryMode()?myTeam:null]);
+const tradeProbabilityKey=()=>JSON.stringify([settings?.season.league_id,s.tradeMyTeam,s.tradeTeam,s.give,s.receive,s.tradeLegs,s.period,s.rosterMode,s.picks,punts(),irReturnDrops(),injuryMode()?myTeam:null]);
 async function tradeProbabilityRun(body){
  const version=++tradeProbability.version;
  tradeProbability.key=tradeProbabilityKey();tradeProbability.job=null;tradeProbability.error='';
@@ -18,7 +18,7 @@ async function tradeProbabilityRun(body){
  const moves=body.trades?{trades:body.trades}:{my_team_id:body.my_team_id,their_team_id:body.their_team_id,i_give:body.i_give,i_receive:body.i_receive};
  const params={...moves,
   period:body.period,simulation_mode:body.simulation_mode,top_n_players:body.top_n_players,
-  punt_categories:body.punt_categories,...(body.punt_team_id?{punt_team_id:body.punt_team_id}:{}),custom_rosters:custom,trials:3000,seed:20261116};
+  punt_categories:body.punt_categories,...(body.punt_team_id?{punt_team_id:body.punt_team_id}:{}),custom_rosters:custom,ir_return_drops:irReturnDrops(),trials:3000,seed:20261116};
  render();
  if(!tradeProbability.baseline.length)void request('/api/probabilistic/latest').then(({job})=>{
   if(version!==tradeProbability.version||tradeProbability.key!==tradeProbabilityKey())return;
@@ -84,7 +84,7 @@ function tradeMatchupOdds(before,after,pending){
 
 function tradeMatchupDialog(){
  if(tradeProbability.key!==tradeProbabilityKey())return '';
- const {job,error,matchTeam,matchView}=tradeProbability;
+ const {job,error,matchTeam,matchView,expandedMatch}=tradeProbability;
  const before=job?.result?.before?.find(t=>t.team_id===matchTeam);
  const after=job?.result?.after?.find(t=>t.team_id===matchTeam);
  const pending=!error&&(!job||job.status==='running');
@@ -92,16 +92,32 @@ function tradeMatchupDialog(){
  const controls=`<div class="pe-tabs" role="group" aria-label="${tr('Этап сезона','Season stage')}">${views.map(([view,label])=>`<button data-action="trade-matchup-view" data-view="${view}" aria-pressed="${view===matchView}">${label}</button>`).join('')}</div>`;
  const message=error||job?.message;
  if(!before&&!after)return controls+blank(pending?'…':message||tr('Прогноз матчапов недоступен','Matchup forecast unavailable'));
- const table=(head,rows)=>`<div class="pe-table-wrap"><table class="bf-trade-match-table"><thead><tr>${head.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+ const table=(head,rows,className='bf-trade-match-table')=>`<div class="pe-table-wrap"><table class="${className}"><thead><tr>${head.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
  const opponent=tr('Соперник','Opponent');
+ const regular=matchView==='regular',waiting=pending&&!after;
+ const row=(week,id,left,right,oddsCells)=>{
+  const key=`${week}:${id}`,open=expandedMatch===key;
+  const a=left?.category_probabilities??{},b=right?.category_probabilities??{};
+  const categories=[...new Set([...Object.keys(a),...Object.keys(b)])];
+  const name=E(tname(id));
+  const trigger=categories.length?`<button class="bf-prob-team" aria-expanded="${open}">${name}</button>`:name;
+  const attrs=categories.length?` class="bf-click-row" data-action="trade-matchup-categories" data-match-key="${key}"`:'';
+  const matchup=`<tr${attrs}>${regular?`<td>${week}</td>`:''}<td>${trigger}</td>${oddsCells}</tr>`;
+  if(!open||!categories.length)return matchup;
+  const details=categories.map(c=>{
+   const odds=tradeMatchupOdds(a[c],b[c],waiting);
+   return `<tr><th scope="row">${E(c)}</th><td>${odds.comparison}</td><td>${odds.change}</td></tr>`;
+  }).join('');
+  return matchup+`<tr><td colspan="${regular?4:3}" class="bf-prob-category-detail">${table([tr('Категория','Category'),tr('Победа до → после','Win before → after'),'Δ'],details,'bf-trade-category-table')}</td></tr>`;
+ };
  if(matchView==='regular'){
   const prior=before?.regular_matchups??[],next=after?.regular_matchups??[];
   const matches=[...new Map([...prior,...next].map(m=>[m.week,m])).values()].sort((a,b)=>a.week-b.week);
   if(!matches.length)return controls+blank(tr('Нет оставшихся матчапов','No remaining matchups'));
   return controls+table([tr('Неделя','Week'),opponent,tr('Победа до → после','Win before → after'),'Δ'],matches.map(({week,opponent_id})=>{
    const a=prior.find(m=>m.week===week&&m.opponent_id===opponent_id),b=next.find(m=>m.week===week&&m.opponent_id===opponent_id);
-   const odds=tradeMatchupOdds(a?.p_win,b?.p_win,pending&&!after);
-   return `<tr><td>${week}</td><td>${E(tname(opponent_id))}</td><td>${odds.comparison}</td><td>${odds.change}</td></tr>`;
+   const odds=tradeMatchupOdds(a?.p_win,b?.p_win,waiting);
+   return row(week,opponent_id,a,b,`<td>${odds.comparison}</td><td>${odds.change}</td>`);
   }).join(''));
  }
  const prior=before?.playoff_matchups??[],next=after?.playoff_matchups??[];
@@ -118,7 +134,7 @@ function tradeMatchupDialog(){
    const meet=tradeMatchupOdds(a?(left?.p_meet??0):null,b?(right?.p_meet??0):null,pending&&!after);
    const win=tradeMatchupOdds(left?.p_win,right?.p_win,pending&&!after);
    const cell=o=>`<td>${o.comparison}<small>${o.change}</small></td>`;
-   return `<tr><td>${E(tname(id))}</td>${cell(meet)}${cell(win)}</tr>`;
+   return row(round.week,id,left,right,cell(meet)+cell(win));
   }).join(''));
  }).join('');
 }
@@ -127,11 +143,11 @@ function probabilityParams(){
  const custom={};
  if(s.rosterMode==='top_n')for(const team of teams)custom[team.team_id]=selected(team.team_id).map(p=>p.name).sort();
  return {period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,
-  custom_rosters:custom,punt_categories:[...punts()].sort(),...(injuryMode()?{punt_team_id:myTeam}:{}),trials:10000,seed:20261116};
+  custom_rosters:custom,punt_categories:[...punts()].sort(),...(injuryMode()?{punt_team_id:myTeam}:{}),ir_return_drops:irReturnDrops(),trials:10000,seed:20261116};
 }
 function probabilitySettingsKey(p){return JSON.stringify([p.period,p.simulation_mode,p.top_n_players,
  Object.entries(p.custom_rosters??{}).sort(([a],[b])=>+a-+b).map(([k,names])=>[String(k),[...names].sort()]),
- [...(p.punt_categories??[])].sort(),p.punt_team_id??null,p.trials,p.seed]);}
+ [...(p.punt_categories??[])].sort(),p.punt_team_id??null,Object.entries(p.ir_return_drops??{}).sort(),p.trials,p.seed]);}
 function probabilityMatchesCurrent(params){return !!params&&probabilitySettingsKey(params)===probabilitySettingsKey(probabilityParams());}
 function probabilityCurrentResult(){return probabilityMatchesCurrent(probability.params)?probability.result:null;}
 function probabilityAccept(job){
@@ -438,14 +454,22 @@ app.addEventListener('click',event=>{
  if(el.dataset.action==='trade-matchups'){
   tradeProbability.matchTeam=+el.dataset.team;
   tradeProbability.matchView='regular';
+  tradeProbability.expandedMatch=null;
   s.overlay='trade-matchups';
   render();
   app.querySelector('dialog [data-action="close"]')?.focus({preventScroll:true});
  }
  if(el.dataset.action==='trade-matchup-view'){
   tradeProbability.matchView=el.dataset.view;
+  tradeProbability.expandedMatch=null;
   render();
   app.querySelector('dialog [data-action="trade-matchup-view"][aria-pressed="true"]')?.focus({preventScroll:true});
+ }
+ if(el.dataset.action==='trade-matchup-categories'){
+  const key=el.dataset.matchKey;
+  tradeProbability.expandedMatch=tradeProbability.expandedMatch===key?null:key;
+  render();
+  app.querySelector(`dialog [data-match-key="${CSS.escape(key)}"] button`)?.focus({preventScroll:true});
  }
  if(el.dataset.action==='prob-run')void probabilityRun();
  if(el.dataset.action==='prob-restore'){probability.error='';void probabilityRestore();}

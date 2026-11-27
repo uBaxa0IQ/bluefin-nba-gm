@@ -23,6 +23,7 @@ app.addEventListener('click',async event=>{
   }
   invalidate();save();render();return;
  }
+ if(action==='ir-returns'){s.overlay='ir-returns';render();return;}
  if(action==='save-trade'){saveCurrentTrade();return;}
  if(action==='saved-trades'){s.savedTradesError='';s.overlay='saved-trades';render();return;}
  if(action==='saved-trade-load'){loadSavedTrade(el.dataset.id);return;}
@@ -51,7 +52,7 @@ app.addEventListener('click',async event=>{
   const trades=s.tradeLegs.length?tradeScenario():null;
   if(s.tradeLegs.length&&!trades)return;
   s.tradeBusy=true;s.tradeError='';render();
-  const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),...(injuryMode()?{punt_team_id:myTeam}:{}),calculation_engine:'calendar',custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
+  const body={my_team_id:s.tradeMyTeam,their_team_id:s.tradeTeam,i_give:[...s.give],i_receive:[...s.receive],period:settings.season.periods[s.period],simulation_mode:s.rosterMode,top_n_players:13,punt_categories:punts(),...(injuryMode()?{punt_team_id:myTeam}:{}),calculation_engine:'calendar',ir_return_drops:irReturnDrops(),custom_team_players:s.rosterMode==='top_n'?{...s.picks,[s.tradeMyTeam]:selected(s.tradeMyTeam).map(p=>p.name),[s.tradeTeam]:selected(s.tradeTeam).map(p=>p.name)}:null};
   const fingerprint=tradeProbabilityKey();
   if(trades){
    body.trades=trades;
@@ -63,6 +64,11 @@ app.addEventListener('click',async event=>{
 });
 app.addEventListener('change',async event=>{
  const el=event.target;
+ if(el.dataset.irReturn){
+  if(el.value)s.irReturnDrops[el.dataset.irReturn]=Number(el.value);
+  else delete s.irReturnDrops[el.dataset.irReturn];
+  invalidate();save();render();return;
+ }
  if(el.dataset.control){const k=el.dataset.control,previous=s[k];s[k]=['mainTeam','team','compare','pickTeam','week','simWeek','weeksCount','calendarWeek','tradeTeam','tradeMyTeam','probWeek','probOpponent','probMatrixWeek'].includes(k)?(+el.value||null):el.value;
   if(k==='tradeMyTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeTeam=previous;s.receive=[];}
   if(k==='tradeTeam'&&s.tradeMyTeam===s.tradeTeam){s.tradeMyTeam=previous;s.give=[];}
@@ -99,6 +105,7 @@ app.addEventListener('toggle',event=>{if(event.target.hasAttribute('data-trade-s
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'&&s.overlay){s.overlay=null;render();return;}
  const editing=e.target.closest('textarea,[contenteditable="true"],input:not([type="checkbox"]):not([type="radio"]),select');
+ if(e.shiftKey&&e.code==='KeyI'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat&&!editing&&!s.overlay&&injuryMode()&&s.page==='team'&&s.tab==='roster'&&s.team===myTeam){e.preventDefault();s.overlay='ir-returns';render();return;}
  if(e.shiftKey&&e.code==='KeyP'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat&&!editing){e.preventDefault();s.puntsEnabled=!s.puntsEnabled;invalidate();save();render();return;}
  if((e.key==='Enter'||e.key===' ')&&e.target.matches('tr[data-match],tr[data-sim-team],.bf-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}
 });

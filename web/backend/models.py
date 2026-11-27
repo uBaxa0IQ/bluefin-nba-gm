@@ -1,7 +1,7 @@
 """
 Pydantic модели для API запросов.
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from core.config import DEFAULT_PERIOD
 
@@ -15,6 +15,7 @@ class TradeAnalysisRequest(BaseModel):
     period: str = DEFAULT_PERIOD
     punt_categories: List[str] = []
     punt_team_id: int | None = None
+    ir_return_drops: dict[int, int] = Field(default_factory=dict)
     scope_mode: str = "team"  # "team" или "trade"
     simulation_mode: str = "all"  # "all", "exclude_ir" или "top_n"
     top_n_players: int = 13
@@ -51,6 +52,7 @@ class MultiTeamTradeRequest(BaseModel):
     period: str = DEFAULT_PERIOD
     punt_categories: List[str] = []
     punt_team_id: int | None = None
+    ir_return_drops: dict[int, int] = Field(default_factory=dict)
     simulation_mode: str = "all"  # "all", "exclude_ir" или "top_n"
     top_n_players: int = 13
     custom_team_players: Optional[Dict[int, List[str]]] = None

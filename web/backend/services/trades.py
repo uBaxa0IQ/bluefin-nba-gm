@@ -19,11 +19,12 @@ def _project(players, scoring_periods, punts, slots, current, team_id, live_play
 
 
 def analyze_calendar_trade(league_metadata, period, team_moves, punt_categories=(),
-                           selected_before=None, selected_after=None, simulation_mode="all", punt_team_id=None):
+                           selected_before=None, selected_after=None, simulation_mode="all", punt_team_id=None,
+                           ir_return_drops=None):
     """Evaluate roster moves in the actual remaining matchup calendar."""
     snapshot = build_league_snapshot(league_metadata, period, **projection_snapshot_options(simulation_mode))
     injury_context = projection_injury_context(league_metadata, snapshot, simulation_mode,
-        punt_team_id=punt_team_id, punt_categories=punt_categories)
+        punt_team_id=punt_team_id, punt_categories=punt_categories, ir_return_drops=ir_return_drops)
     league = league_metadata.league
     matchup_period = int(league.currentMatchupPeriod)
     scoring_periods = get_remaining_scoring_periods(league, matchup_period)

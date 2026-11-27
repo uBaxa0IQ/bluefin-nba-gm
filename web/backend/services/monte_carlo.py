@@ -12,12 +12,12 @@ from .postseason import prepare_postseason
 
 
 def prepare_season(metadata, period, *, simulation_mode='top_n', top_n_players=13,
-                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None, live_matchup=None,
+                   custom_rosters=None, punt_categories=(), snapshot=None, punt_team_id=None, live_matchup=None, ir_return_drops=None,
                    include_postseason=False):
     league = metadata.league
     snapshot = snapshot or build_league_snapshot(metadata, period, **projection_snapshot_options(simulation_mode))
     injury_context = projection_injury_context(metadata, snapshot, simulation_mode,
-        punt_team_id=punt_team_id, punt_categories=punt_categories)
+        punt_team_id=punt_team_id, punt_categories=punt_categories, ir_return_drops=ir_return_drops)
     raw = getattr(metadata, 'league_data', None) or league.espn_request.get_league()
     schedule_settings = raw['settings']['scheduleSettings']
     divisions = schedule_settings.get('divisions', [])

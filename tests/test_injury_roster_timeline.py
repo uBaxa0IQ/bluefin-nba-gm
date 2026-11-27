@@ -77,6 +77,25 @@ def test_ir_return_keeps_existing_player_when_worse_under_team_punts():
     assert context.plan(roster, 2)[1]['events'][0]['dropped'] == 'Incumbent'
 
 
+def test_planned_ir_drops_use_the_roster_at_each_return():
+    roster = [player(1, 'Mara', slot='IR', z=5), player(2, 'Chet', slot='IR', z=1),
+              player(3, 'Donte', slot='IR', z=8), player(4, 'Goodwin', z=2), player(5, 'Other', z=-2)]
+    report = {i: out(i, f'2026-12-0{i + 1}') for i in (1, 2, 3)}
+    context = InjuryContext(date(2026, 12, 1), 2, report, ir_return_drops={1: 4, 2: 1, 3: 3})
+    planned, details = context.plan([p.as_projection_player() for p in roster], 1, include_return_steps=True)
+    assert [(e['kind'], e['player'], e['dropped']) for e in details['events']] == [
+        ('activate_ir', 'Mara', 'Goodwin'), ('activate_ir', 'Chet', 'Mara'), ('drop_on_return', 'Donte', 'Donte'),
+    ]
+    assert [{p['name'] for p in s['candidates']} for s in details['return_steps']] == [
+        {'Goodwin', 'Other'}, {'Mara', 'Other'}, {'Chet', 'Other'},
+    ]
+    assert details['return_steps'][0]['automatic_drop'] == 'Other'
+    assert planned[0]['available_from'] == date(2026, 12, 2)
+    assert planned[0]['available_until'] == date(2026, 12, 3)
+    assert not planned[2]['available']
+    assert 'available_until' not in planned[4]
+
+
 def test_monte_carlo_and_week_projection_share_the_dated_roster(monkeypatch):
     teams = [SimpleNamespace(team_id=i, team_name=f'Team {i}', wins=0, losses=0, ties=0) for i in (1, 2)]
     snapshot = LeagueSnapshot(

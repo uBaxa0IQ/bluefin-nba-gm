@@ -20,7 +20,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
                            simulation_mode="all", top_n_players=13,
                            custom_team_id=None, custom_team_players=(), snapshot_override=None,
                            custom_rosters=None, punt_categories=(), record_forecasts=True, punt_team_id=None,
-                           current=None) -> Dict[str, Any]:
+                           current=None, ir_return_drops=None) -> Dict[str, Any]:
     if calculation_engine == "legacy":
         simulation_mode = static_roster_mode(simulation_mode)
     league = league_metadata.league
@@ -44,7 +44,7 @@ def project_regular_season(league_metadata, period: str, calculation_engine: str
     if has_future_matchups:
         snapshot = snapshot_override or build_league_snapshot(league_metadata, period, **projection_snapshot_options(simulation_mode))
         injury_context = projection_injury_context(league_metadata, snapshot, simulation_mode,
-            punt_team_id=punt_team_id, punt_categories=punt_categories)
+            punt_team_id=punt_team_id, punt_categories=punt_categories, ir_return_drops=ir_return_drops)
         if injury_context:
             planned_rosters = {}
             for team in teams:

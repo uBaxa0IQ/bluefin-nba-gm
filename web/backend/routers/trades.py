@@ -419,7 +419,7 @@ def analyze_trade(
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id,
+        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id, ir_return_drops=request.ir_return_drops,
     ) if request.calculation_engine != "legacy" else None
 
     return {
@@ -822,7 +822,7 @@ def analyze_multi_team_trade(
         trade_moves,
         request.punt_categories,
         selected_before, selected_after,
-        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id,
+        simulation_mode=request.simulation_mode, punt_team_id=request.punt_team_id, ir_return_drops=request.ir_return_drops,
     ) if request.calculation_engine != "legacy" else None
 
     return {

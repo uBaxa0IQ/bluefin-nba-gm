@@ -23,6 +23,7 @@ def run_probability_job(metadata, params, progress):
     prepared = prepare_season(metadata, params['period'], simulation_mode=params['simulation_mode'],
                               top_n_players=params['top_n_players'], custom_rosters=params['custom_rosters'],
                               punt_categories=params['punt_categories'], punt_team_id=params.get('punt_team_id'),
+                              ir_return_drops={int(k): v for k, v in params.get('ir_return_drops', {}).items()},
                               include_postseason=True)
     progress('histories', 0, len(prepared['players']))
     distributions, coverage = build_distributions(

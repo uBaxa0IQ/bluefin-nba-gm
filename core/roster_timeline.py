@@ -1,6 +1,6 @@
 """Projected IR activations and corresponding roster moves for one ESPN snapshot."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 import math
 
@@ -31,20 +31,22 @@ class InjuryContext:
     punt_team_id: int | None = None
     punt_categories: frozenset[str] = frozenset()
 
+    ir_return_drops: dict[int, int] = field(default_factory=dict)
+
     @classmethod
-    def from_league(cls, metadata, snapshot, *, punt_team_id=None, punt_categories=()):
+    def from_league(cls, metadata, snapshot, *, punt_team_id=None, punt_categories=(), ir_return_drops=None):
         report = projection_injury_report(metadata)
         by_id = {}
         for row in sorted(report['players'], key=lambda row: row.get('injury_updated_at') or ''):
             if row.get('player_id') is not None:
                 by_id[row['player_id']] = row
         return cls(nba_date(snapshot.created_at), len(league_slots(metadata, include_bench=True)),
-                   by_id, report.get('updated_at'), punt_team_id, frozenset(punt_categories))
+                   by_id, report.get('updated_at'), punt_team_id, frozenset(punt_categories), ir_return_drops or {})
 
     def punts_for(self, team_id):
         return self.punt_categories if team_id is not None and team_id == self.punt_team_id else ()
 
-    def plan(self, players, team_id=None):
+    def plan(self, players, team_id=None, *, include_return_steps=False):
         """Resolve dated eligibility once, before selecting lineups or sampling stats."""
         punts = self.punts_for(team_id)
         rows, regular, activations, returns, events, unavailable = [], [], [], [], [], []
@@ -75,7 +77,7 @@ class InjuryContext:
                     row['available_from'] = expected
                     returns.append((expected, row))
 
-        def drop_on(day, incoming=None):
+        def automatic_drop(day, incoming=None):
             # A return earlier on this same day occupies its slot for the day.
             candidates = [p for p in regular if p.get('droppable', True) and p.get('activated_on') != day]
             if not candidates:
@@ -83,25 +85,47 @@ class InjuryContext:
             dropped = min(candidates, key=lambda p: (overall_z(p, punts), p['name']))
             if incoming is not None and overall_z(incoming, punts) <= overall_z(dropped, punts):
                 return None
-            regular.remove(dropped)
-            dropped['available_until'] = day
             return dropped
+
+        def drop(player, day):
+            regular.remove(player)
+            player['available_until'] = day
 
         # An unequal hypothetical trade can start with more than the league limit.
         while len(regular) > self.roster_limit:
-            dropped = drop_on(self.as_of)
+            dropped = automatic_drop(self.as_of)
             if dropped is None:
                 raise ValueError('Невозможно соблюсти лимит состава: все игроки защищены от дропа.')
+            drop(dropped, self.as_of)
             events.append({'date': self.as_of.isoformat(), 'kind': 'roster_limit_drop', 'dropped': dropped['name'],
                            'dropped_z': overall_z(dropped, punts)})
 
+        return_steps = []
         for day, player in sorted(activations, key=lambda pair: (pair[0], -overall_z(pair[1], punts), pair[1]['name'])):
-            dropped = None
-            if len(regular) >= self.roster_limit:
-                dropped = drop_on(day, incoming=player)
-                if dropped is None:
-                    events.append({'date': day.isoformat(), 'kind': 'activation_blocked', 'player': player['name']})
-                    continue
+            player_id = player.get('player_id')
+            target = self.ir_return_drops.get(player_id)
+            full = len(regular) >= self.roster_limit
+            auto = automatic_drop(day, incoming=player) if full else None
+            eligible = {p['player_id']: p for p in regular if p.get('player_id') is not None and p.get('droppable', True)}
+            can_drop_self = player.get('droppable', True)
+            if include_return_steps:
+                return_steps.append({
+                    'player_id': player_id, 'name': player['name'], 'date': day.isoformat(),
+                    'candidates': [{'player_id': pid, 'name': p['name']} for pid, p in eligible.items()],
+                    'can_drop_self': can_drop_self, 'automatic_drop': auto['name'] if auto else None,
+                    'automatic_blocked': full and auto is None,
+                })
+            if target is not None and target == player_id and can_drop_self:
+                player['available_until'] = day
+                events.append({'date': day.isoformat(), 'kind': 'drop_on_return', 'player': player['name'],
+                               'dropped': player['name'], 'dropped_z': overall_z(player, punts)})
+                continue
+            dropped = eligible.get(target) or auto
+            if full and dropped is None:
+                events.append({'date': day.isoformat(), 'kind': 'activation_blocked', 'player': player['name']})
+                continue
+            if dropped is not None:
+                drop(dropped, day)
             player.update(available=True, available_from=day, activated_on=day)
             regular.append(player)
             events.append({'date': day.isoformat(), 'kind': 'activate_ir', 'player': player['name'],
@@ -110,7 +134,10 @@ class InjuryContext:
 
         events.extend({'date': day.isoformat(), 'kind': 'return', 'player': player['name']}
                       for day, player in returns if roster_available_on(player, day))
-        return rows, {'events': sorted(events, key=lambda e: e['date']), 'unavailable': unavailable}
+        details = {'events': sorted(events, key=lambda e: e['date']), 'unavailable': unavailable}
+        if include_return_steps:
+            details['return_steps'] = return_steps
+        return rows, details
 
     def available_today(self, players, team_id=None):
         planned, _ = self.plan(players, team_id)

@@ -57,7 +57,8 @@ def run_contribution(metadata, params, progress):
     progress('calendar', 0, len(roster))
     prepared = prepare_season(metadata, params['period'], simulation_mode=params['simulation_mode'],
         top_n_players=params['top_n_players'], custom_rosters=params['custom_rosters'],
-        punt_categories=params['punt_categories'], snapshot=snapshot, punt_team_id=params.get('punt_team_id'))
+        punt_categories=params['punt_categories'], snapshot=snapshot, punt_team_id=params.get('punt_team_id'),
+        ir_return_drops={int(k): v for k, v in params.get('ir_return_drops', {}).items()})
     distributions, _ = build_distributions(prepared['players'], metadata.year,
         ROOT / '.cache' / 'monte_carlo' / 'game_logs', as_of=datetime.fromisoformat(prepared['metadata']['as_of']),
         excluded_events=prepared['excluded_events'],
